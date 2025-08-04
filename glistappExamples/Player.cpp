@@ -35,6 +35,5 @@ void Player::Update() {
 }
 
 void Player::Draw() {
-    if (isEmpty) rect.draw(x, y, w, h, false);
-    else rect.draw(x, y, w, h, true);
+	rect.draw(x, y, w, h, true);
 }

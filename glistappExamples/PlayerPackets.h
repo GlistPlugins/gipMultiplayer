@@ -4,7 +4,10 @@
 
 using namespace znet;
 
-enum : PacketId { PACKET_PLAYER_STATE = 1001 };
+enum : PacketId {
+    PACKET_PLAYER_STATE = 1001,
+    PACKET_PLAYER_DISCONNECT = 1002
+};
 
 class PlayerStatePacket : public Packet {
 public:
@@ -33,6 +36,26 @@ public:
         b->Read(reinterpret_cast<char*>(&p->y), sizeof(float));
         p->isEmpty = b->ReadInt<uint8_t>();
 
+        return p;
+    }
+};
+
+class PlayerDisconnectPacket : public Packet {
+public:
+    PlayerDisconnectPacket() : Packet(PACKET_PLAYER_DISCONNECT) {}
+    uint32_t pid = 0;
+};
+
+class PlayerDisconnectSerializer : public PacketSerializer<PlayerDisconnectPacket> {
+public:
+    std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<PlayerDisconnectPacket> p,
+                                           std::shared_ptr<Buffer> b) override {
+        b->WriteInt<uint32_t>(p->pid);
+        return b;
+    }
+    std::shared_ptr<PlayerDisconnectPacket> DeserializeTyped(std::shared_ptr<Buffer> b) override {
+        auto p = std::make_shared<PlayerDisconnectPacket>();
+        p->pid = b->ReadInt<uint32_t>();
         return p;
     }
 };

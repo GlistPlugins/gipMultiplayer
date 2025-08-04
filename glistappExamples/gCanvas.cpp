@@ -11,7 +11,7 @@ static uint32_t MakeRandomId() {
 
 static constexpr bool isHost = true;
 static const char* bindIP = "0.0.0.0";
-static const char* serverIP = "YOUR_IP_HERE";
+static const char* serverIP = "YOUR_IP_ADDRESS";
 static constexpr uint16_t port = 25000;
 
 gCanvas::gCanvas(gApp* root) : gBaseCanvas(root), root(root) {}
@@ -20,13 +20,18 @@ gCanvas::~gCanvas() {}
 void gCanvas::setup() {
 	if (isHost) server = createGameServer(bindIP, port);
 
-	client = createGameClient(isHost ? "YOUR_IP_HERE" : serverIP, port);
+	client = createGameClient(isHost ? "YOUR_IP_ADDRESS" : serverIP, port);
 	player = new Player(getWidth() / 2, getHeight() / 2, 100, 100);
 	myId = MakeRandomId();
 
 	setRemoteStateCallback([this](uint32_t id, float x, float y, bool green){
 		std::lock_guard<std::mutex> lock(queueMutex);
 		queue.push_back(RemoteState{id, x, y, green});
+	});
+	
+	setPlayerDisconnectCallback([this](uint32_t id) {
+		std::lock_guard<std::mutex> lk(queueMutex);
+		queue.push_back(RemoteState{id, -999, -999, false});
 	});
 }
 
@@ -39,6 +44,10 @@ void gCanvas::update() {
 
 	for (auto& remoteState : batch) {
 		if (remoteState.id == myId) continue;
+		
+		if (remoteState.x == -999) {
+			remotes.erase(remoteState.id);
+		}
 
 		auto it = remotes.find(remoteState.id);
 
@@ -57,8 +66,14 @@ void gCanvas::update() {
 }
 
 void gCanvas::draw() {
+	setColor(0, 255, 0);
 	player->Draw();
-	for (auto& kv : remotes) kv.second->Draw();
+	for (auto& kv : remotes) {
+		gLogi("gCanvas") << kv.second;
+		setColor(255, 0, 0);
+		kv.second->Draw();
+	}
+	setColor(255, 255, 255);
 }
 
 void gCanvas::keyPressed(int key) { player->KeyPressed(key); }

@@ -7,13 +7,18 @@ using namespace znet;
 namespace {
     std::shared_ptr<PeerSession> session;
     std::function<void(uint32_t,float,float,bool)> onRemote;
+	std::function<void(uint32_t)> onDisconnect;
 
-    class ClientHandler : public PacketHandler<ClientHandler, PlayerStatePacket> {
+    class ClientHandler : public PacketHandler<ClientHandler, PlayerStatePacket, PlayerDisconnectPacket> {
     public:
         explicit ClientHandler(std::shared_ptr<PeerSession> s) : peerSessionPtr(std::move(s)) {}
 
         void OnPacket(std::shared_ptr<PlayerStatePacket> p) {
             if (onRemote) onRemote(p->pid, p->x, p->y, p->isEmpty != 0);
+        }
+		
+		void OnPacket(std::shared_ptr<PlayerDisconnectPacket> p) {
+            if (onDisconnect) onDisconnect(p->pid);
         }
 
         void OnUnknown(std::shared_ptr<Packet>) {}
@@ -26,6 +31,7 @@ namespace {
         auto codec = std::make_shared<Codec>();
 
         codec->Add(PACKET_PLAYER_STATE, std::make_unique<PlayerStateSerializer>());
+		codec->Add(PACKET_PLAYER_DISCONNECT, std::make_unique<PlayerDisconnectSerializer>());
         sess->SetCodec(codec);
         sess->SetHandler(std::make_shared<ClientHandler>(sess));
         session = sess;
@@ -53,11 +59,13 @@ void setRemoteStateCallback(const std::function<void(uint32_t,float,float,bool)>
     onRemote = cb;
 }
 
+void setPlayerDisconnectCallback(const std::function<void(uint32_t)>& cb) {
+    onDisconnect = cb;
+}
+
 bool sendLocalState(uint32_t id, float x, float y, bool isGreen) {
     if (!session) return false;
-
     auto p = std::make_shared<PlayerStatePacket>();
     p->pid = id; p->x = x; p->y = y; p->isEmpty = isGreen ? 1 : 0;
-
     return session->SendPacket(p);
 }
