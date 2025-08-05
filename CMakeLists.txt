@@ -8,7 +8,8 @@ set(PLUGIN_DIR ${PLUGINS_DIR}/${pluginname})
 
 ##### PLUGIN SOURCES #####
 list(APPEND PLUGIN_SRCS
-		${PLUGIN_DIR}/src/gipEmptyPlugin.cpp
+		${PLUGIN_DIR}/src/gipServerHandler.cpp
+		${PLUGIN_DIR}/src/gipClientHandler.cpp
 )
 
 ##### PLUGIN HEADERS #####

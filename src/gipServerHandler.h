@@ -1,0 +1,36 @@
+/*
+ * gipServer.h
+ *
+ *  Created on: Mar 11, 2023
+ *      Author: Noyan Culum
+ *      Created by: kayra
+ */
+
+#ifndef SRC_GIPSERVERHANDLER_H_
+#define SRC_GIPSERVERHANDLER_H_
+
+#include "gBasePlugin.h"
+#include <string>
+#include <memory>
+#include <algorithm>
+#include <mutex>
+#include <vector>
+#include <unordered_map>
+#include "znet/znet.h"
+#include "znet/server_events.h"
+#include "gipPackets.h"
+
+std::unique_ptr<znet::Server> createGameServer(const std::string& bindIp, uint16_t port);
+
+class gipServerHandler : public PacketHandler<gipServerHandler, PlayerStatePacket, PlayerDisconnectPacket>  {
+public:
+    explicit gipServerHandler(std::shared_ptr<PeerSession> s) : peerSessionPtr(std::move(s)) {}
+
+    void OnPacket(std::shared_ptr<PlayerStatePacket> p);
+
+    void OnUnknown(std::shared_ptr<Packet>);
+private:
+    std::shared_ptr<PeerSession> peerSessionPtr;
+};
+
+#endif /* SRC_GIPSERVERHANDLER_H_ */

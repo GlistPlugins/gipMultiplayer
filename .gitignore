@@ -157,3 +157,4 @@ CTestTestfile.cmake
 _deps
 /vcpkg_installed/
 build*/
+/Release/
