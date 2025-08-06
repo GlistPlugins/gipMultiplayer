@@ -26,19 +26,19 @@ class PlayerStateSerializer : public PacketSerializer<PlayerStatePacket> {
 public:
     std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<PlayerStatePacket> p, std::shared_ptr<Buffer> b) override {
         b->WriteInt<uint32_t>(p->pid);
-        b->Write(reinterpret_cast<const char*>(&p->x), sizeof(float));
-        b->Write(reinterpret_cast<const char*>(&p->y), sizeof(float));
-        b->Write(reinterpret_cast<const char*>(&p->z), sizeof(float));
+        b->WriteFloat(p->x);
+    	b->WriteFloat(p->y);
+    	b->WriteFloat(p->z);
         return b;
     }
 
     std::shared_ptr<PlayerStatePacket> DeserializeTyped(std::shared_ptr<Buffer> b) override {
         auto p = std::make_shared<PlayerStatePacket>();
         p->pid = b->ReadInt<uint32_t>();
-        b->Read(reinterpret_cast<char*>(&p->x), sizeof(float));
-        b->Read(reinterpret_cast<char*>(&p->y), sizeof(float));
-        b->Read(reinterpret_cast<char*>(&p->z), sizeof(float));
-        return p;
+    	p->x = b->ReadFloat();
+    	p->y = b->ReadFloat();
+    	p->z = b->ReadFloat();
+    	return p;
     }
 };
 
