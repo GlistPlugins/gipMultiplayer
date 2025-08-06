@@ -13,11 +13,11 @@ cd path/to/your/myglistplugins
 git clone https://github.com/GlistPlugins/gipMultiplayer
 ```
 
-### Step 2: Initialize and update submodules (for zNet)
+### Step 2: Initialize and initialize submodules (for zNet)
 
 ```bash
 cd gipMultiplayer
-git submodule update --remote --recursive
+git submodule update --init --recursive
 ```
 > ⚠️ Skipping this step will cause missing zNet dependencies, and the project will not run correctly.
 
