@@ -10,14 +10,14 @@ Before running this GlistApp project, you **must** set up the `gipMultiplayer` p
 
 ```bash
 cd path/to/your/myglistplugins
-git clone https://github.com/GlistPlugins/gipMultiplayer
+git clone https://github.com/GlistPlugins/gipMultiplayer.git
 ```
 
-### Step 2: Initialize and update submodules (for zNet)
+### Step 2: Initialize submodules (for zNet)
 
 ```bash
 cd gipMultiplayer
-git submodule update --remote --recursive
+git submodule update --init --recursive
 ```
 > ⚠️ Skipping this step will cause missing zNet dependencies, and the project will not run correctly.
 
@@ -26,16 +26,11 @@ git submodule update --remote --recursive
 ### Step 4: Create your server.
 
 - To initialize your local server, you can inspect the examples within the examples directory of this repository.
-- You should set the IP of the server to your private IP as shown in the gCanvas.cpp file in the examples directory.
+- You should set the IP of the server to your local IP as shown in the gCanvas.cpp file in the examples directory.
 - For a host, you should set the isHost variable to 'true' before the initialization. For clients, set it to 'false'.
 - For testing, you can do it by starting 2 instances, one as a host, and another as a client.
 - In the examples, there is a Player class that controls a 3D cube object. The packets in the example code is able to properly display the host's and client's cubes in the same server.
 
 ## Final Notes
 
-- Windows developers should not forget to add
-```
-${workspace_loc}\..\..\..\..\glistplugins\gipMultiplayer\libs\bin
-```
-directory to the GlistApp project's PATH list.
-(Project->Properties->C/C++ Build->Environment->PATH)
+Make sure to run server app first and then client.
