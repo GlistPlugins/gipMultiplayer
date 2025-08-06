@@ -1,6 +1,9 @@
-//
-// Created by Yusuf Ustaoglu on 5.08.2025.
-//
+/*
+* gipClientHandler.cpp
+ *
+ *  Created on: August 5, 2025
+ *      Created by: Yusuf Ustaoglu
+ */
 
 #include "gipClientHandler.h"
 
@@ -50,6 +53,7 @@ void OnEvent(Event& ev) {
 	d.Dispatch<ClientDisconnectedFromServerEvent>(ZNET_BIND_GLOBAL_FN(OnDisconnected));
 }
 }
+
 std::unique_ptr<Client> createGameClient(const std::string& serverIp, uint16_t port) {
     auto cli = std::make_unique<Client>(ClientConfig{serverIp, port});
     cli->SetEventCallback(ZNET_BIND_GLOBAL_FN(OnEvent));

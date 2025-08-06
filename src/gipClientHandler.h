@@ -1,6 +1,9 @@
-//
-// Created by Yusuf Ustaoglu on 5.08.2025.
-//
+/*
+* gipClientHandler.h
+ *
+ *  Created on: August 5, 2025
+ *      Created by: Yusuf Ustaoglu
+ */
 
 #ifndef GIPCLIENTHANDLER_H
 #define GIPCLIENTHANDLER_H

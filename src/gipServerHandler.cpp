@@ -1,9 +1,8 @@
 /*
- * gipEmptyPlugin.cpp
+* gipServerHandler.cpp
  *
- *  Created on: Mar 11, 2023
- *      Author: Noyan Culum
- *      Created by: kayra
+ *  Created on: August 5, 2025
+ *      Created by: Yusuf Ustaoglu
  */
 
 #include "gipServerHandler.h"
@@ -26,7 +25,6 @@ void gipServerHandler::OnUnknown(std::shared_ptr<Packet>) {
 }
 
 namespace {
-
 bool OnIncoming(ServerClientConnectedEvent& e) {
     auto sess = e.session();
     auto codec = std::make_shared<Codec>();
@@ -58,6 +56,7 @@ bool OnDisconnect(ServerClientDisconnectedEvent& e) {
     if (playerId != 0) {
         auto disconnectPacket = std::make_shared<PlayerDisconnectPacket>();
         disconnectPacket->pid = playerId;
+
         for (auto& s : sessions) {
             if (s) {
                 s->SendPacket(disconnectPacket);
@@ -81,5 +80,3 @@ std::unique_ptr<Server> createGameServer(const std::string& bindIp, uint16_t por
     if (srv->Listen() != Result::Success) return nullptr;
     return srv;
 }
-
-

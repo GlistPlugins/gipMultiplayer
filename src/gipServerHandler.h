@@ -1,9 +1,8 @@
 /*
- * gipServer.h
+* gipServerHandler.h
  *
- *  Created on: Mar 11, 2023
- *      Author: Noyan Culum
- *      Created by: kayra
+ *  Created on: August 5, 2025
+ *      Created by: Yusuf Ustaoglu
  */
 
 #ifndef SRC_GIPSERVERHANDLER_H_

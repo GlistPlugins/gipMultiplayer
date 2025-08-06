@@ -1,11 +1,15 @@
-//
-// Created by Yusuf Ustaoglu on 5.08.2025.
-//
+/*
+* gipPackets.h
+ *
+ *  Created on: August 5, 2025
+ *      Created by: Yusuf Ustaoglu
+ */
 
 #ifndef PACKETS_H
 #define PACKETS_H
 
 #include "znet/znet.h"
+
 using namespace znet;
 
 enum : PacketId {
@@ -54,6 +58,7 @@ public:
         b->WriteInt<uint32_t>(p->pid);
         return b;
     }
+
     std::shared_ptr<PlayerDisconnectPacket> DeserializeTyped(std::shared_ptr<Buffer> b) override {
         auto p = std::make_shared<PlayerDisconnectPacket>();
         p->pid = b->ReadInt<uint32_t>();
