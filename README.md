@@ -1,13 +1,41 @@
-# gipEmptyPlugin
-This is a baseplate for all the GlistEngine plugins and should be cloned under `~dev/glist/glistplugins` whenever developing a new plugin for the engine.
+# gipMultiplayer
 
-gipPlugins are extensions of GlistEngine that draw on the screen. If you are going to create an extension that does just calculations, you can use the gipEmptyComponent template.
+`gipMultiplayer` is a plugin for GlistApp projects and GlistEngine games that will help you set up a local server of your own in order to establish multiplayer gameplay. It utilizes the `zNet` library. 
 
-The developer should put his external precompiled library files into the plugin's libs folder.
+## 🛠️ Setup Instructions
+
+Before running this GlistApp project, you **must** set up the `gipMultiplayer` plugin and initialize its submodules to fetch the required zNet dependencies.
+
+### Step 1: Clone `gipMultiplayer` into your `myglistplugins` directory
+
+```bash
+cd path/to/your/myglistplugins
+git clone https://github.com/GlistPlugins/gipMultiplayer
+```
+
+### Step 2: Initialize and update submodules (for zNet)
+
+```bash
+cd gipMultiplayer
+git submodule update --remote --recursive
+```
+> ⚠️ Skipping this step will cause missing zNet dependencies, and the project will not run correctly.
+
+### Step 3: Inside your GlistApp project's CMakeLists.txt file, add gipMultiplayer to your plugins.
+
+### Step 4: Create your server.
+
+- To initialize your local server, you can inspect the examples within the examples directory of this repository.
+- You should set the IP of the server to your private IP as shown in the gCanvas.cpp file in the examples directory.
+- For a host, you should set the isHost variable to 'true' before the initialization. For clients, set it to 'false'.
+- For testing, you can do it by starting 2 instances, one as a host, and another as a client.
+- In the examples, there is a Player class that controls a 3D cube object. The packets in the example code is able to properly display the host's and client's cubes in the same server.
+
+## Final Notes
 
 - Windows developers should not forget to add
 ```
-${workspace_loc}\..\..\..\..\glistplugins\gipYourPluginName\libs\bin
+${workspace_loc}\..\..\..\..\glistplugins\gipMultiplayer\libs\bin
 ```
 directory to the GlistApp project's PATH list.
 (Project->Properties->C/C++ Build->Environment->PATH)
