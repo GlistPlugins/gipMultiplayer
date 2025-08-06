@@ -50,8 +50,8 @@ public:
 private:
 	gApp* root;
 	gImage logo;
-	std::unique_ptr<znet::Server> server;
-	std::unique_ptr<znet::Client> client;
+	std::unique_ptr<gipMultiplayer::Server> server;
+	std::unique_ptr<gipMultiplayer::Client> client;
 	Player* player;
 	uint32_t myId = 0;
 	std::unordered_map<uint32_t, std::unique_ptr<Player>> remotes;

@@ -15,7 +15,9 @@
 #include "znet/znet.h"
 #include "gipPackets.h"
 
-std::unique_ptr<znet::Server> createGameServer(const std::string& bindIp, uint16_t port);
+namespace gipMultiplayer = znet;
+
+std::unique_ptr<gipMultiplayer::Server> createGameServer(const std::string& bindIp, uint16_t port);
 
 class gipServerHandler : public PacketHandler<gipServerHandler, PlayerStatePacket, PlayerDisconnectPacket>  {
 public:

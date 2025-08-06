@@ -10,7 +10,9 @@
 
 #include "gipPackets.h"
 
-std::unique_ptr<znet::Client> createGameClient(const std::string& serverIp, uint16_t port);
+namespace gipMultiplayer = znet;
+
+std::unique_ptr<gipMultiplayer::Client> createGameClient(const std::string& serverIp, uint16_t port);
 void setRemoteStateCallback(const std::function<void(uint32_t, float, float, float)>& cb);
 void setPlayerDisconnectCallback(const std::function<void(uint32_t)>& cb);
 void setServerDisconnectedCallback(const std::function<void()>& cb);
