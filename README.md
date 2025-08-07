@@ -9,7 +9,7 @@ Before running this GlistApp project, you **must** set up the `gipMultiplayer` p
 ### Step 1: Clone `gipMultiplayer` into your `myglistplugins` directory
 
 ```bash
-cd path/to/your/myglistplugins
+cd path/to/your/glistplugins
 git clone https://github.com/GlistPlugins/gipMultiplayer.git
 ```
 
