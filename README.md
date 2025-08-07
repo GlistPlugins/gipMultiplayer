@@ -6,7 +6,7 @@
 
 Before running this GlistApp project, you **must** set up the `gipMultiplayer` plugin and initialize its submodules to fetch the required zNet dependencies.
 
-### Step 1: Clone `gipMultiplayer` into your `myglistplugins` directory
+### Step 1: Clone `gipMultiplayer` into your `glistplugins` directory
 
 ```bash
 cd path/to/your/glistplugins
