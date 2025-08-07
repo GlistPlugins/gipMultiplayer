@@ -2,7 +2,7 @@
 * gipServerHandler.h
  *
  *  Created on: August 5, 2025
- *      Created by: Yusuf Ustaoglu
+ *      Authors: Yusuf Ustaoglu, Muhammet Furkan Demir
  */
 
 #ifndef SRC_GIPSERVERHANDLER_H_
