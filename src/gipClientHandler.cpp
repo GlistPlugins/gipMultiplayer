@@ -2,7 +2,7 @@
 * gipClientHandler.cpp
  *
  *  Created on: August 5, 2025
- *      Created by: Yusuf Ustaoglu
+ *      Authors: Yusuf Ustaoglu, Muhammet Furkan Demir
  */
 
 #include "gipClientHandler.h"
