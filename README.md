@@ -31,6 +31,10 @@ git submodule update --init --recursive
 - For testing, you can do it by starting 2 instances, one as a host, and another as a client.
 - In the examples, there is a Player class that controls a 3D cube object. The packets in the example code is able to properly display the host's and client's cubes in the same server.
 
+### Important Note
+
+In order to run the example code, you must copy the code from the related examples directory into your own GlistApp project, and change the IP address variable in the gCanvas class to your own private IP address. 
+
 ## Final Notes
 
 Make sure to run server app first and then client.
