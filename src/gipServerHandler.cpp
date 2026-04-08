@@ -6,6 +6,8 @@
  */
 
 #include "gipServerHandler.h"
+#include "znet/peer_session.h"
+#include "znet/server_events.h"
 
 std::mutex sessionMutex;
 std::vector<std::shared_ptr<PeerSession>> sessions;

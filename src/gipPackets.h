@@ -8,9 +8,7 @@
 #ifndef PACKETS_H
 #define PACKETS_H
 
-#include "znet/znet.h"
-
-using namespace znet;
+#include "gipMultiplayer.h"
 
 enum : PacketId {
     PACKET_PLAYER_STATE,

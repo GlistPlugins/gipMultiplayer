@@ -8,16 +8,16 @@
 #ifndef SRC_GIPSERVERHANDLER_H_
 #define SRC_GIPSERVERHANDLER_H_
 
-#include "gBasePlugin.h"
-#include <string>
-#include <memory>
-#include <algorithm>
-#include "znet/znet.h"
+#include "gipMultiplayer.h"
 #include "gipPackets.h"
+
+#include <algorithm>
+#include <memory>
+#include <string>
 
 namespace gipMultiplayer = znet;
 
-std::unique_ptr<gipMultiplayer::Server> createGameServer(const std::string& bindIp, uint16_t port);
+std::unique_ptr<Server> createGameServer(const std::string& bindIp, uint16_t port);
 
 class gipServerHandler : public PacketHandler<gipServerHandler, PlayerStatePacket, PlayerDisconnectPacket>  {
 public:

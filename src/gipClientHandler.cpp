@@ -7,6 +7,10 @@
 
 #include "gipClientHandler.h"
 
+#include "znet/client.h"
+#include "znet/client_events.h"
+#include "znet/peer_session.h"
+
 std::shared_ptr<PeerSession> session;
 std::function<void(uint32_t, float, float, float)> onRemote;
 std::function<void(uint32_t)> onDisconnect;
