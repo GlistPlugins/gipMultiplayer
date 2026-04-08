@@ -11,6 +11,8 @@
 #include "znet/client_events.h"
 #include "znet/peer_session.h"
 
+using namespace znet;
+
 std::shared_ptr<PeerSession> session;
 std::function<void(uint32_t, float, float, float)> onRemote;
 std::function<void(uint32_t)> onDisconnect;
@@ -28,7 +30,6 @@ void gipClientHandler::OnUnknown(std::shared_ptr<Packet> p) {
     ZNET_LOG_INFO("Unknown packet");
 }
 
-namespace {
 bool OnConnected(ClientConnectedToServerEvent& e) {
     auto sess = e.session();
     auto codec = std::make_shared<Codec>();
@@ -55,7 +56,6 @@ void OnEvent(Event& ev) {
     EventDispatcher d{ev};
     d.Dispatch<ClientConnectedToServerEvent>(ZNET_BIND_GLOBAL_FN(OnConnected));
 	d.Dispatch<ClientDisconnectedFromServerEvent>(ZNET_BIND_GLOBAL_FN(OnDisconnected));
-}
 }
 
 std::unique_ptr<Client> createGameClient(const std::string& serverIp, uint16_t port) {

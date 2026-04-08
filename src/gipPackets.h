@@ -10,12 +10,12 @@
 
 #include "gipMultiplayer.h"
 
-enum : PacketId {
+enum : znet::PacketId {
     PACKET_PLAYER_STATE,
     PACKET_PLAYER_DISCONNECT
 };
 
-class PlayerStatePacket : public Packet {
+class PlayerStatePacket : public znet::Packet {
 public:
     PlayerStatePacket() : Packet(PACKET_PLAYER_STATE) {}
     uint32_t pid = 0;
@@ -24,9 +24,9 @@ public:
     float z = 0.f;
 };
 
-class PlayerStateSerializer : public PacketSerializer<PlayerStatePacket> {
+class PlayerStateSerializer : public znet::PacketSerializer<PlayerStatePacket> {
 public:
-    std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<PlayerStatePacket> p, std::shared_ptr<Buffer> b) override {
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<PlayerStatePacket> p, std::shared_ptr<znet::Buffer> b) {
         b->WriteInt<uint32_t>(p->pid);
         b->WriteFloat(p->x);
     	b->WriteFloat(p->y);
@@ -34,7 +34,7 @@ public:
         return b;
     }
 
-    std::shared_ptr<PlayerStatePacket> DeserializeTyped(std::shared_ptr<Buffer> b) override {
+    std::shared_ptr<PlayerStatePacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) {
         auto p = std::make_shared<PlayerStatePacket>();
         p->pid = b->ReadInt<uint32_t>();
     	p->x = b->ReadFloat();
@@ -44,20 +44,20 @@ public:
     }
 };
 
-class PlayerDisconnectPacket : public Packet {
+class PlayerDisconnectPacket : public znet::Packet {
 public:
     PlayerDisconnectPacket() : Packet(PACKET_PLAYER_DISCONNECT) {}
     uint32_t pid = 0;
 };
 
-class PlayerDisconnectSerializer : public PacketSerializer<PlayerDisconnectPacket> {
+class PlayerDisconnectSerializer : public znet::PacketSerializer<PlayerDisconnectPacket> {
 public:
-    std::shared_ptr<Buffer> SerializeTyped(std::shared_ptr<PlayerDisconnectPacket> p, std::shared_ptr<Buffer> b) override {
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<PlayerDisconnectPacket> p, std::shared_ptr<znet::Buffer> b) {
         b->WriteInt<uint32_t>(p->pid);
         return b;
     }
 
-    std::shared_ptr<PlayerDisconnectPacket> DeserializeTyped(std::shared_ptr<Buffer> b) override {
+    std::shared_ptr<PlayerDisconnectPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) {
         auto p = std::make_shared<PlayerDisconnectPacket>();
         p->pid = b->ReadInt<uint32_t>();
         return p;

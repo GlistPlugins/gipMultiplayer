@@ -22,15 +22,15 @@ void setPlayerDisconnectCallback(const std::function<void(uint32_t)>& cb);
 void setServerDisconnectedCallback(const std::function<void()>& cb);
 bool sendLocalState(uint32_t id, float x, float y, float z);
 
-class gipClientHandler : public PacketHandler<gipClientHandler, PlayerStatePacket, PlayerDisconnectPacket> {
+class gipClientHandler : public znet::PacketHandler<gipClientHandler, PlayerStatePacket, PlayerDisconnectPacket> {
 public:
-	explicit gipClientHandler(std::shared_ptr<PeerSession> s) : peerSessionPtr(std::move(s)) {}
+	explicit gipClientHandler(std::shared_ptr<znet::PeerSession> s) : peerSessionPtr(std::move(s)) {}
 
 	void OnPacket(std::shared_ptr<PlayerStatePacket> p);
 	void OnPacket(std::shared_ptr<PlayerDisconnectPacket> p);
-	void OnUnknown(std::shared_ptr<Packet>);
+	void OnUnknown(std::shared_ptr<znet::Packet>);
 private:
-	std::shared_ptr<PeerSession> peerSessionPtr;
+	std::shared_ptr<znet::PeerSession> peerSessionPtr;
 };
 
 #endif //GIPCLIENTHANDLER_H

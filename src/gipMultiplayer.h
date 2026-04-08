@@ -14,6 +14,7 @@
 #include "znet/client_events.h"
 #include "znet/codec.h"
 #include "znet/client.h"
+#include "znet/server.h"
 
 namespace gipMultiplayer = znet;
 

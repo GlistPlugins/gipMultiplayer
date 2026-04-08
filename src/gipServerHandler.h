@@ -15,19 +15,17 @@
 #include <memory>
 #include <string>
 
-namespace gipMultiplayer = znet;
+std::unique_ptr<znet::Server> createGameServer(const std::string& bindIp, uint16_t port);
 
-std::unique_ptr<Server> createGameServer(const std::string& bindIp, uint16_t port);
-
-class gipServerHandler : public PacketHandler<gipServerHandler, PlayerStatePacket, PlayerDisconnectPacket>  {
+class gipServerHandler : public znet::PacketHandler<gipServerHandler, PlayerStatePacket, PlayerDisconnectPacket>  {
 public:
-    explicit gipServerHandler(std::shared_ptr<PeerSession> s) : peerSessionPtr(std::move(s)) {}
+    explicit gipServerHandler(std::shared_ptr<znet::PeerSession> s) : peerSessionPtr(std::move(s)) {}
 
     void OnPacket(std::shared_ptr<PlayerStatePacket> p);
 
-    void OnUnknown(std::shared_ptr<Packet>);
+    void OnUnknown(std::shared_ptr<znet::Packet>);
 private:
-    std::shared_ptr<PeerSession> peerSessionPtr;
+    std::shared_ptr<znet::PeerSession> peerSessionPtr;
 };
 
 #endif /* SRC_GIPSERVERHANDLER_H_ */
