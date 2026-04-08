@@ -12,8 +12,8 @@
 using namespace znet;
 
 std::mutex sessionMutex;
-std::vector<std::shared_ptr<znet::PeerSession>> sessions;
-std::unordered_map<std::shared_ptr<znet::PeerSession>, uint32_t> sessionToPid;
+std::vector<std::shared_ptr<PeerSession>> sessions;
+std::unordered_map<std::shared_ptr<PeerSession>, uint32_t> sessionToPid;
 
 void gipServerHandler::OnPacket(std::shared_ptr<PlayerStatePacket> p) {
     std::lock_guard<std::mutex> lk(sessionMutex);
@@ -24,12 +24,12 @@ void gipServerHandler::OnPacket(std::shared_ptr<PlayerStatePacket> p) {
     }
 }
 
-void gipServerHandler::OnUnknown(std::shared_ptr<znet::Packet>) {
+void gipServerHandler::OnUnknown(std::shared_ptr<Packet>) {
     ZNET_LOG_INFO("Unknown packet");
 }
 
 namespace {
-bool OnIncoming(znet::ServerClientConnectedEvent& e) {
+bool OnIncoming(ServerClientConnectedEvent& e) {
     auto sess = e.session();
     auto codec = std::make_shared<Codec>();
 
