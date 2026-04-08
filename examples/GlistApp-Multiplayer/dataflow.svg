@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 750" font-family="Consolas, monospace" font-size="12">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#555"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#4a90d9"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#5a9a5a"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="480" y="25" text-anchor="middle" fill="#e0e0e0" font-size="16" font-weight="bold">Data Flow: Network Thread vs Main Thread</text>
+
+  <!-- Thread columns -->
+  <rect x="20" y="45" width="420" height="670" fill="#1e2a3a" rx="6" stroke="#3a5a7a" stroke-width="1"/>
+  <text x="230" y="67" text-anchor="middle" fill="#7ab8e0" font-size="14" font-weight="bold">Network Thread(s)</text>
+
+  <rect x="520" y="45" width="420" height="670" fill="#1e3a2a" rx="6" stroke="#3a7a5a" stroke-width="1"/>
+  <text x="730" y="67" text-anchor="middle" fill="#7ae080" font-size="14" font-weight="bold">Main/Render Thread</text>
+
+  <!-- === CLIENT FLOW === -->
+  <text x="480" y="100" text-anchor="middle" fill="#e0c060" font-size="13" font-weight="bold">Client Flow (GameBackendRemote)</text>
+
+  <!-- Client: Packet arrives -->
+  <rect x="40" y="115" width="380" height="40" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="230" y="139" text-anchor="middle" fill="#b0d0f0">ClientPacketHandler::OnPacket()</text>
+
+  <!-- Client: enqueueState -->
+  <rect x="40" y="170" width="380" height="35" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="230" y="192" text-anchor="middle" fill="#90b0d0">enqueueState()  [lock queuemutex]</text>
+
+  <line x1="230" y1="155" x2="230" y2="170" stroke="#4a90d9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Queue box (bridge) -->
+  <rect x="440" y="178" width="80" height="28" fill="#3a2a1a" rx="4" stroke="#c09030" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <text x="480" y="196" text-anchor="middle" fill="#e0c060" font-size="10">Queue</text>
+
+  <line x1="420" y1="187" x2="440" y2="192" stroke="#c09030" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Main: update drains queue -->
+  <rect x="540" y="115" width="380" height="40" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="730" y="133" text-anchor="middle" fill="#b0f0b0">GameBackend::update()</text>
+  <text x="730" y="147" text-anchor="middle" fill="#80c080" font-size="10">swap queue [lock queuemutex]</text>
+
+  <line x1="520" y1="192" x2="540" y2="150" stroke="#c09030" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Main: apply position -->
+  <rect x="540" y="170" width="380" height="35" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="730" y="192" text-anchor="middle" fill="#90d090">setPosition() on remote gNode</text>
+
+  <line x1="730" y1="155" x2="730" y2="170" stroke="#5a9a5a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Main: send local state -->
+  <rect x="540" y="220" width="380" height="35" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="730" y="242" text-anchor="middle" fill="#90d090">broadcastState() via session</text>
+
+  <line x1="730" y1="205" x2="730" y2="220" stroke="#5a9a5a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- === HOST FLOW === -->
+  <text x="480" y="290" text-anchor="middle" fill="#e0c060" font-size="13" font-weight="bold">Host Flow (GameBackendLocal)</text>
+
+  <!-- Host: Packet arrives -->
+  <rect x="40" y="305" width="380" height="40" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="230" y="329" text-anchor="middle" fill="#b0d0f0">ServerPacketHandler::OnPacket()</text>
+
+  <!-- Host: enqueueState -->
+  <rect x="40" y="360" width="380" height="35" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="230" y="382" text-anchor="middle" fill="#90b0d0">enqueueState()  [lock queuemutex]</text>
+
+  <line x1="230" y1="345" x2="230" y2="360" stroke="#4a90d9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Host: SetUserPointer -->
+  <rect x="40" y="410" width="380" height="35" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="230" y="432" text-anchor="middle" fill="#90b0d0">SetUserPointer(nodeId) on session</text>
+
+  <line x1="230" y1="395" x2="230" y2="410" stroke="#4a90d9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Host: broadcast to others -->
+  <rect x="40" y="460" width="380" height="35" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="230" y="482" text-anchor="middle" fill="#90b0d0">broadcast()  [lock sessionsmutex]</text>
+
+  <line x1="230" y1="445" x2="230" y2="460" stroke="#4a90d9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Queue box (bridge) for host -->
+  <rect x="440" y="368" width="80" height="28" fill="#3a2a1a" rx="4" stroke="#c09030" stroke-width="1.5" stroke-dasharray="4,2"/>
+  <text x="480" y="386" text-anchor="middle" fill="#e0c060" font-size="10">Queue</text>
+
+  <line x1="420" y1="377" x2="440" y2="382" stroke="#c09030" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Main: update for host -->
+  <rect x="540" y="305" width="380" height="40" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="730" y="323" text-anchor="middle" fill="#b0f0b0">GameBackend::update()</text>
+  <text x="730" y="337" text-anchor="middle" fill="#80c080" font-size="10">swap queue [lock queuemutex]</text>
+
+  <line x1="520" y1="382" x2="540" y2="340" stroke="#c09030" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Main: onJoin callback -->
+  <rect x="540" y="360" width="380" height="35" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="730" y="382" text-anchor="middle" fill="#90d090">onJoin() -> create gBox, attachNode</text>
+
+  <line x1="730" y1="345" x2="730" y2="360" stroke="#5a9a5a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Main: apply position -->
+  <rect x="540" y="410" width="380" height="35" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="730" y="432" text-anchor="middle" fill="#90d090">setPosition() on remote gNode</text>
+
+  <line x1="730" y1="395" x2="730" y2="410" stroke="#5a9a5a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Main: broadcastState for host -->
+  <rect x="540" y="460" width="380" height="35" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="730" y="477" text-anchor="middle" fill="#90d090">broadcastState()</text>
+  <text x="730" y="490" text-anchor="middle" fill="#80c080" font-size="10">[lock sessionsmutex]</text>
+
+  <line x1="730" y1="445" x2="730" y2="460" stroke="#5a9a5a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- === DISCONNECT FLOW === -->
+  <text x="480" y="535" text-anchor="middle" fill="#e0c060" font-size="13" font-weight="bold">Disconnect Flow (Host)</text>
+
+  <!-- Disconnect event -->
+  <rect x="40" y="550" width="380" height="40" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="230" y="574" text-anchor="middle" fill="#b0d0f0">onPeerDisconnected()</text>
+
+  <!-- Get ID from user pointer -->
+  <rect x="40" y="610" width="180" height="35" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="130" y="632" text-anchor="middle" fill="#90b0d0" font-size="11">user_ptr -> nodeId</text>
+
+  <line x1="130" y1="590" x2="130" y2="610" stroke="#4a90d9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Remove session -->
+  <rect x="240" y="610" width="180" height="35" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="330" y="627" text-anchor="middle" fill="#90b0d0" font-size="11">remove session</text>
+  <text x="330" y="640" text-anchor="middle" fill="#708090" font-size="9">[lock sessionsmutex]</text>
+
+  <line x1="330" y1="590" x2="330" y2="610" stroke="#4a90d9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- enqueueLeave -->
+  <rect x="540" y="550" width="185" height="40" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="632" y="568" text-anchor="middle" fill="#90b0d0" font-size="11">enqueueLeave()</text>
+  <text x="632" y="582" text-anchor="middle" fill="#708090" font-size="9">[lock queuemutex]</text>
+
+  <line x1="420" y1="565" x2="540" y2="565" stroke="#c09030" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- onLeave callback -->
+  <rect x="540" y="610" width="185" height="35" fill="#2a4a2a" rx="4" stroke="#5a9a5a" stroke-width="1"/>
+  <text x="632" y="627" text-anchor="middle" fill="#90d090" font-size="11">onLeave() callback</text>
+  <text x="632" y="640" text-anchor="middle" fill="#708090" font-size="9">detach + erase box</text>
+
+  <line x1="632" y1="590" x2="632" y2="610" stroke="#5a9a5a" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+
+  <!-- Broadcast NodeLeavePacket -->
+  <rect x="745" y="550" width="175" height="40" fill="#2a3a5a" rx="4" stroke="#4a7ab8" stroke-width="1"/>
+  <text x="832" y="568" text-anchor="middle" fill="#90b0d0" font-size="11">broadcast</text>
+  <text x="832" y="582" text-anchor="middle" fill="#90b0d0" font-size="11">NodeLeavePacket</text>
+
+  <line x1="420" y1="580" x2="745" y2="570" stroke="#4a90d9" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+
+  <!-- Legend -->
+  <rect x="40" y="670" width="380" height="35" rx="4" fill="none" stroke="#555" stroke-width="1"/>
+  <line x1="55" y1="687" x2="80" y2="687" stroke="#4a90d9" stroke-width="2"/>
+  <text x="85" y="691" fill="#7ab8e0" font-size="11">Network thread</text>
+  <line x1="210" y1="687" x2="235" y2="687" stroke="#5a9a5a" stroke-width="2"/>
+  <text x="240" y="691" fill="#7ae080" font-size="11">Main thread</text>
+  <line x1="340" y1="687" x2="365" y2="687" stroke="#c09030" stroke-width="2" stroke-dasharray="4,2"/>
+  <text x="370" y="691" fill="#e0c060" font-size="11">Queue</text>
+</svg>

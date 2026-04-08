@@ -11,10 +11,13 @@
 #include "znet/packet_handler.h"
 #include "znet/peer_session.h"
 #include "znet/init.h"
-#include "znet/client_events.h"
 #include "znet/codec.h"
 #include "znet/client.h"
 #include "znet/server.h"
+#include "znet/packet.h"
+#include "znet/event.h"
+#include "znet/server_events.h"
+#include "znet/client_events.h"
 
 namespace gipMultiplayer = znet;
 
