@@ -7,7 +7,7 @@ GameBackend::~GameBackend() {
 }
 
 void GameBackend::attachNode(uint32_t netid, gNode* node, bool local) {
-	nodes[netid] = {node, local};
+	nodes[netid] = {node, local, -9999.f, -9999.f, -9999.f, 0.f, 0.f, 0.f};
 }
 
 void GameBackend::detachNode(uint32_t netid) {
@@ -32,7 +32,7 @@ void GameBackend::enqueueLeave(uint32_t id) {
 	queue.push_back({id, 0, 0, 0, true});
 }
 
-void GameBackend::update() {
+void GameBackend::update(float deltaTime) {
 	// Drain the queue (thread-safe swap)
 	std::vector<QueuedEvent> batch;
 	{
@@ -55,18 +55,53 @@ void GameBackend::update() {
 			if (it == nodes.end()) continue;
 		}
 
-		// Apply position to remote nodes
+		// Set target position for remote nodes instead of snapping them instantly
 		if (!it->second.local) {
-			it->second.node->setPosition(ev.x, ev.y, ev.z);
+			it->second.targetX = ev.x;
+			it->second.targetY = ev.y;
+			it->second.targetZ = ev.z;
 		}
 	}
 
-	// Send each local node's current position to remote peers
+	// Interpolate all remote nodes towards their target smoothly
 	for (auto& kv : nodes) {
-		if (!kv.second.local) continue;
-		// You might want to check if the position changed and then send it because this would be sending the same position every frame
-		// even if it is not changed at all.
-		// Additionally, you want to synchronize the orientation as well.
-		broadcastState(kv.first, kv.second.node->getPosX(), kv.second.node->getPosY(), kv.second.node->getPosZ());
+		if (!kv.second.local) {
+			float curX = kv.second.node->getPosX();
+			float curY = kv.second.node->getPosY();
+			float curZ = kv.second.node->getPosZ();
+			
+			// Simple Lerp: start + (end - start) * factor
+			float lerpFactor = 15.0f * deltaTime;
+			if (lerpFactor > 1.0f) lerpFactor = 1.0f;
+			
+			kv.second.node->setPosition(
+				curX + (kv.second.targetX - curX) * lerpFactor,
+				curY + (kv.second.targetY - curY) * lerpFactor,
+				curZ + (kv.second.targetZ - curZ) * lerpFactor
+			);
+		}
+	}
+
+	// Throttle broadcasts to a fixed network tick rate (e.g. 20 ticks per sec = 0.05f)
+	networkTimer += deltaTime;
+	if (networkTimer >= 0.05f) {
+		networkTimer = 0.f;
+		
+		// Send each local node's current position to remote peers
+		for (auto& kv : nodes) {
+			if (!kv.second.local) continue;
+			
+			float cx = kv.second.node->getPosX();
+			float cy = kv.second.node->getPosY();
+			float cz = kv.second.node->getPosZ();
+			
+			// Only send if position actually changed to prevent massive network lag
+			if (cx != kv.second.lastX || cy != kv.second.lastY || cz != kv.second.lastZ) {
+				kv.second.lastX = cx;
+				kv.second.lastY = cy;
+				kv.second.lastZ = cz;
+				broadcastState(kv.first, cx, cy, cz);
+			}
+		}
 	}
 }

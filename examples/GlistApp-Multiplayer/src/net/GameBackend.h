@@ -39,7 +39,7 @@ public:
 
 	// Call once per frame. Processes incoming state from the network thread
 	// and sends local node positions via broadcastState().
-	void update();
+	void update(float deltaTime);
 
 	// Callbacks fired during update() when a new remote node appears or leaves.
 	// Use onJoin to create a visual and call attachNode for the new ID.
@@ -63,8 +63,12 @@ private:
 	struct NetNode {
 		gNode* node;
 		bool local;
+		float lastX = -9999.f, lastY = -9999.f, lastZ = -9999.f;
+		float targetX = 0.f, targetY = 0.f, targetZ = 0.f; // Interpolation targets
 	};
 	std::unordered_map<uint32_t, NetNode> nodes;
+	
+	float networkTimer = 0.f;
 
 	struct QueuedEvent {
 		uint32_t id;

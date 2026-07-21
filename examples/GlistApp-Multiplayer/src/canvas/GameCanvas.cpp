@@ -58,7 +58,7 @@ void GameCanvas::update() {
 	// Process incoming network events and send local node positions
 	// For nodes that are owned by the remote, we set the received position
 	// For nodes that are owned by us, we send the position to remotes
-	backend->update();
+	backend->update(root->getElapsedTime());
 }
 
 void GameCanvas::draw() {
