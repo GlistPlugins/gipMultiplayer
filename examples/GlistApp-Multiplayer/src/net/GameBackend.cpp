@@ -95,13 +95,14 @@ void GameBackend::update(float deltaTime) {
 			float cy = kv.second.node->getPosY();
 			float cz = kv.second.node->getPosZ();
 			
-			// Only send if position actually changed to prevent massive network lag
-			if (cx != kv.second.lastX || cy != kv.second.lastY || cz != kv.second.lastZ) {
-				kv.second.lastX = cx;
-				kv.second.lastY = cy;
-				kv.second.lastZ = cz;
-				broadcastState(kv.first, cx, cy, cz);
-			}
+			// We MUST send the position even if it hasn't changed!
+			// Due to a bug in the znet library where the client socket is accidentally blocking, 
+			// the client's network thread will freeze on recv() and fail to send its own movements
+			// UNLESS the host continuously sends packets to wake it up. This acts as a keep-alive.
+			kv.second.lastX = cx;
+			kv.second.lastY = cy;
+			kv.second.lastZ = cz;
+			broadcastState(kv.first, cx, cy, cz);
 		}
 	}
 }
