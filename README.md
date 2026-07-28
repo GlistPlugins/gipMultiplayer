@@ -4,6 +4,12 @@ A multiplayer networking plugin for GlistEngine. Provides the [znet](https://git
 
 ## Setup
 
+### Requirements
+
+- **CMake 3.29 or newer** — required by znet.
+- **OpenSSL** — bundled with the glist toolchain on Windows; install it from your package manager on Linux and macOS.
+- **Network access on the first configure** — znet and zstd are downloaded then.
+
 ### 1. Clone into your `glistplugins` directory
 
 ```bash
@@ -11,20 +17,21 @@ cd path/to/your/glistplugins
 git clone https://github.com/GlistPlugins/gipMultiplayer.git
 ```
 
-### 2. Initialize submodules (for znet)
-
-```bash
-cd gipMultiplayer
-git submodule update --init --recursive
-```
-
-### 3. Add to your project's CMakeLists.txt
+### 2. Add to your project's CMakeLists.txt
 
 ```cmake
 set(PLUGINS gipMultiplayer)
 ```
 
-### 4. Include in your code
+znet is fetched at configure time and pinned to a known-good commit in [`external/znet.cmake`](external/znet.cmake), so there is nothing else to install or check out. The sources land in your app's build tree, not in the plugin directory.
+
+If you want to build against a local znet checkout instead of the pinned commit:
+
+```bash
+cmake -DFETCHCONTENT_SOURCE_DIR_ZNET=/path/to/znet ...
+```
+
+### 3. Include in your code
 
 ```cpp
 #include "gipMultiplayer.h"
