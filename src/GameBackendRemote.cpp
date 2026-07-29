@@ -29,7 +29,7 @@ GameBackendRemote::GameBackendRemote(const std::string& serverIp, uint16_t port)
 }
 
 void GameBackendRemote::start() {
-	client = std::make_unique<znet::Client>(znet::ClientConfig{serverip, port});
+	client = std::make_unique<znet::Client>(znet::ClientConfig{serverip, port, std::chrono::seconds(10), znet::ConnectionType::ZDT});
 
 	// znet fires events on a background network thread.
 	// We dispatch them to our member functions using ZNET_BIND_FN.

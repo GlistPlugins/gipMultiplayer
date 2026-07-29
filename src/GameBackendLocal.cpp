@@ -42,7 +42,7 @@ GameBackendLocal::GameBackendLocal(const std::string& bindIp, uint16_t port)
 }
 
 void GameBackendLocal::start() {
-	server = std::make_unique<znet::Server>(znet::ServerConfig{bindip, port});
+	server = std::make_unique<znet::Server>(znet::ServerConfig{bindip, port, std::chrono::seconds(10), znet::ConnectionType::ZDT});
 
 	// znet fires events on a background network thread.
 	// We dispatch them to our member functions using ZNET_BIND_FN.
