@@ -96,6 +96,10 @@ else()
 	include(${ENGINE_DIR}/CMakeLists.txt)
 endif()
 
+# The engine requires C++17, while this example remains on C++14.
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+
 ########## SOURCE FILES AND INCLUDE DIRECTORIES ##########
 
 set(GlistApp_SOURCES
@@ -106,6 +110,7 @@ set(GlistApp_SOURCES
 		${APP_DIR}/src/net/GameBackendRemote.cpp
 		${APP_DIR}/src/canvas/MenuCanvas.cpp
 		${APP_DIR}/src/canvas/GameCanvas.cpp
+		${APP_DIR}/src/canvas/AudioCanvas.cpp
 )
 
 set(GlistApp_HEADERS
@@ -116,6 +121,7 @@ set(GlistApp_HEADERS
 		${APP_DIR}/src/net/GamePackets.h
 		${APP_DIR}/src/canvas/MenuCanvas.h
 		${APP_DIR}/src/canvas/GameCanvas.h
+		${APP_DIR}/src/canvas/AudioCanvas.h
 )
 
 add_executable(${APP_NAME}
