@@ -21,7 +21,7 @@ set(ZNET_ZSTD_GIT_TAG "48c0ed73625272cb7445183b5e256b5d0a130316"
 
 # znet defaults to C++20. Build it at the same standard as the engine and the
 # app so its public headers compile the same way on both sides of the link.
-set(ZNET_CXX_STANDARD "14"
+set(ZNET_CXX_STANDARD "17"
 		CACHE STRING "C++ standard used to build znet (14, 17, 20 or 23)")
 
 ##### OPENSSL #####

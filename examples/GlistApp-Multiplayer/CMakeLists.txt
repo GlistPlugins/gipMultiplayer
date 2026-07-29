@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.10.2)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 ########## PROJECT NAME ##########
@@ -106,6 +106,7 @@ set(GlistApp_SOURCES
 		${APP_DIR}/src/net/GameBackendRemote.cpp
 		${APP_DIR}/src/canvas/MenuCanvas.cpp
 		${APP_DIR}/src/canvas/GameCanvas.cpp
+		${APP_DIR}/src/canvas/AudioCanvas.cpp
 )
 
 set(GlistApp_HEADERS
@@ -116,6 +117,7 @@ set(GlistApp_HEADERS
 		${APP_DIR}/src/net/GamePackets.h
 		${APP_DIR}/src/canvas/MenuCanvas.h
 		${APP_DIR}/src/canvas/GameCanvas.h
+		${APP_DIR}/src/canvas/AudioCanvas.h
 )
 
 add_executable(${APP_NAME}

@@ -8,7 +8,7 @@ A multiplayer networking plugin for GlistEngine. Provides the [znet](https://git
 
 - **CMake 3.29 or newer** — required by znet.
 - **OpenSSL** — bundled with the glist toolchain on Windows; install it from your package manager on Linux and macOS.
-- **Network access on the first configure** — znet and zstd are downloaded then.
+- **Network access on the first configure** — znet, zstd, gipOpus and libopus are downloaded then.
 
 ### 1. Clone into your `glistplugins` directory
 
@@ -23,7 +23,7 @@ git clone https://github.com/GlistPlugins/gipMultiplayer.git
 set(PLUGINS gipMultiplayer)
 ```
 
-znet is fetched at configure time and pinned to a known-good commit in [`external/znet.cmake`](external/znet.cmake), so there is nothing else to install or check out. The sources land in your app's build tree, not in the plugin directory.
+znet and [gipOpus](https://github.com/GlistPlugins/gipOpus) are fetched at configure time and pinned to known-good commits in [`external/znet.cmake`](external/znet.cmake) and [`external/gipopus.cmake`](external/gipopus.cmake). The nested zstd and libopus dependencies are fetched automatically too, so there is nothing else to install or check out. gipOpus is placed in `glistplugins/gipOpus`; znet and zstd remain in the app's build tree.
 
 If you want to build against a local znet checkout instead of the pinned commit:
 
@@ -36,6 +36,16 @@ cmake -DFETCHCONTENT_SOURCE_DIR_ZNET=/path/to/znet ...
 ```cpp
 #include "gipMultiplayer.h"
 ```
+
+## Local Voice Loopback
+
+`gVoiceLoopback` validates the local microphone pipeline with either delayed raw PCM or an Opus encode/decode round trip. It uses the default capture and playback devices and does not send voice over the network.
+
+```cpp
+#include "audio/gVoiceLoopback.h"
+```
+
+Use headphones while running the loopback to prevent acoustic feedback. Mobile applications must also provide the platform microphone permission: `RECORD_AUDIO` plus runtime permission on Android, and a microphone usage description on Apple platforms.
 
 ## Example
 
