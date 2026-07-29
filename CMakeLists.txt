@@ -8,9 +8,7 @@ set(PLUGIN_DIR ${PLUGINS_DIR}/${pluginname})
 
 ##### PLUGIN SOURCES #####
 list(APPEND PLUGIN_SRCS
-		${PLUGIN_DIR}/src/GameBackend.cpp
-		${PLUGIN_DIR}/src/GameBackendLocal.cpp
-		${PLUGIN_DIR}/src/GameBackendRemote.cpp
+		${PLUGIN_DIR}/src/gipNetworkBackend.cpp
 )
 
 ##### PLUGIN HEADERS #####
