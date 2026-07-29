@@ -26,11 +26,17 @@ set(ZNET_CXX_STANDARD "14"
 
 ##### OPENSSL #####
 # znet does find_package(OpenSSL REQUIRED). On Windows OpenSSL ships with the
-# glist toolchain, which is not a place CMake looks by default.
+# glist toolchain, which is not a place CMake looks by default. On Android,
+# there's no system OpenSSL at all - use gipAndroid's prebuilt per-ABI libs.
 if(WIN32)
 	set(OPENSSL_ROOT_DIR "C:/dev/glist/zbin/glistzbin-win64/clang64")
 	set(OPENSSL_INCLUDE_DIR "C:/dev/glist/zbin/glistzbin-win64/clang64/include")
 	set(OPENSSL_CRYPTO_LIBRARY "C:/dev/glist/zbin/glistzbin-win64/clang64/lib/libcrypto.lib")
+elseif(ANDROID)
+	set(OPENSSL_ROOT_DIR "${PLUGINS_DIR}/gipAndroid/libs/openssl/${ANDROID_ABI}")
+	set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
+	set(OPENSSL_CRYPTO_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libcrypto.a")
+	set(OPENSSL_SSL_LIBRARY "${OPENSSL_ROOT_DIR}/lib/libssl.a")
 endif()
 
 ##### ZSTD #####
