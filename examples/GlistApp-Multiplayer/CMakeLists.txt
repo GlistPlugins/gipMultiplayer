@@ -1,6 +1,6 @@
 cmake_minimum_required (VERSION 3.10.2)
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 ########## PROJECT NAME ##########
@@ -95,10 +95,6 @@ if(APPLE)
 else()
 	include(${ENGINE_DIR}/CMakeLists.txt)
 endif()
-
-# The engine requires C++17, while this example remains on C++14.
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 ########## SOURCE FILES AND INCLUDE DIRECTORIES ##########
 

@@ -23,7 +23,7 @@ git clone https://github.com/GlistPlugins/gipMultiplayer.git
 set(PLUGINS gipMultiplayer)
 ```
 
-znet and [gipOpus](https://github.com/GlistPlugins/gipOpus) are fetched at configure time and pinned to known-good commits in [`external/znet.cmake`](external/znet.cmake) and [`external/gipopus.cmake`](external/gipopus.cmake). The nested zstd and libopus dependencies are fetched automatically too, so there is nothing else to install or check out. The sources land in your app's build tree, not in the plugin directory.
+znet and [gipOpus](https://github.com/GlistPlugins/gipOpus) are fetched at configure time and pinned to known-good commits in [`external/znet.cmake`](external/znet.cmake) and [`external/gipopus.cmake`](external/gipopus.cmake). The nested zstd and libopus dependencies are fetched automatically too, so there is nothing else to install or check out. gipOpus is placed in `glistplugins/gipOpus`; znet and zstd remain in the app's build tree.
 
 If you want to build against a local znet checkout instead of the pinned commit:
 
