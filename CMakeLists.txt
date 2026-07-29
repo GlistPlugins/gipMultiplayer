@@ -8,7 +8,6 @@ set(PLUGIN_DIR ${PLUGINS_DIR}/${pluginname})
 
 ##### PLUGIN SOURCES #####
 list(APPEND PLUGIN_SRCS
-		${PLUGIN_DIR}/src/gipNetworkBackend.cpp
 )
 
 ##### PLUGIN HEADERS #####
