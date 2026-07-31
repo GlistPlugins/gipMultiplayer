@@ -13,9 +13,12 @@
 
 // Packet IDs - must be unique per packet type
 enum : znet::PacketId {
-    PACKET_NODE_STATE,
-    PACKET_NODE_LEAVE
+	PACKET_NODE_STATE = 0,
+	PACKET_NODE_LEAVE = 1,
+	PACKET_CLIENT_READY = 2
 };
+
+constexpr uint8_t GAME_PROTOCOL_VERSION = 1;
 
 // Sent every frame to sync a node's position across the network
 class NodeStatePacket : public znet::Packet {
@@ -67,5 +70,39 @@ public:
         return p;
     }
 };
+
+// Sent after the client has installed its codec and packet handler. The server
+// assigns voice identity and team only after receiving this packet.
+class ClientReadyPacket : public znet::Packet {
+public:
+	ClientReadyPacket() : Packet(PACKET_CLIENT_READY) {}
+	uint8_t version = GAME_PROTOCOL_VERSION;
+};
+
+class ClientReadySerializer : public znet::PacketSerializer<ClientReadyPacket> {
+public:
+	std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<ClientReadyPacket> p,
+			std::shared_ptr<znet::Buffer> b) override {
+		if (!p || p->version != GAME_PROTOCOL_VERSION) return nullptr;
+		b->WriteInt<uint8_t>(p->version);
+		return b->GetAndClearLastError() == znet::BufferError::None ? b : nullptr;
+	}
+
+	std::shared_ptr<ClientReadyPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+		if (!b || b->readable_bytes() != 1) return nullptr;
+		auto p = std::make_shared<ClientReadyPacket>();
+		p->version = b->ReadInt<uint8_t>();
+		if (b->GetAndClearLastError() != znet::BufferError::None || p->version != GAME_PROTOCOL_VERSION) return nullptr;
+		return p;
+	}
+};
+
+inline SendOptions getGameControlSendOptions() {
+	SendOptions options;
+	options.Set<ReliableKey>(true);
+	options.Set<OrderedKey>(true);
+	options.Set<ChannelKey>(0);
+	return options;
+}
 
 #endif //GAMEPACKETS_H

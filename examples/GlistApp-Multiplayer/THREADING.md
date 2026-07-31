@@ -1,8 +1,8 @@
 # Threading Model
 
-This example runs on two threads: the **main thread** (GlistEngine's render loop) and the **network thread** (znet's internal thread). Understanding which code runs where is key to avoiding race conditions and a lot of headaches down the line. 
+This example uses the **main thread** (GlistEngine's render loop), znet's network workers, miniaudio's device callback, and the team-voice codec/mixer worker. Understanding which code runs where is key to avoiding races.
 
-## The Two Threads
+## Execution Contexts
 
 ### Main Thread (Render Loop)
 GlistEngine calls `update()` and `draw()` on the main thread every frame. All game logic, rendering, and node manipulation happens here.
@@ -11,6 +11,7 @@ Runs:
 - `GameCanvas::update()` — moves the local player, calls `backend->update()`
 - `GameCanvas::draw()` — renders all boxes
 - `GameBackend::update()` — drains the event queue, applies positions to remote nodes, sends local node positions
+- `gTeamVoice::updateNetwork()` — drains encoded uplinks into the active ZDT session
 
 ### Network Thread(s) (znet)
 znet runs a pool of background threads for network I/O, distributing sessions across them. When a packet arrives or a connection event happens, znet calls our handlers on one of these threads, **not the main thread**. This means two `ServerPacketHandler::OnPacket()` calls for different clients can run concurrently on different threads — which is why the locks protect shared state like the sessions list and event queue.
@@ -20,6 +21,8 @@ Runs:
 - `ClientPacketHandler::OnPacket()` — when the server sends data to a client
 - `GameBackendLocal::onPeerConnected/Disconnected()` — when a client connects/disconnects
 - `GameBackendRemote::onConnected/Disconnected()` — when we connect to/disconnect from a server
+- Voice packet handlers — forward controls/downlinks to `gTeamVoice` and uplinks to `gTeamVoiceServer`
+- Connection workers — perform the potentially blocking ZDT client handshake; backend destructors join them before `Disconnect()` and `Wait()`
 
 ## Why We Need Locks
 
@@ -54,11 +57,19 @@ Protects the sessions list (`std::vector<shared_ptr<PeerSession>>`).
 
 Multiple threads can be reading and writing the sessions list simultaneously, so every access is guarded.
 
+### Voice session locks
+
+`GameBackendRemote::sessionmutex` and `GameBackendLocal::localvoicesessionmutex` protect the `shared_ptr<PeerSession>` values written by znet callbacks and read by the main-thread voice pump. Each main-thread use takes a shared-pointer snapshot and releases the lock before sending.
+
+`gTeamVoice` uses bounded queues between the miniaudio callback, the main/network threads and its codec worker. Session, mute, disable and PTT transitions are media barriers; the device callback does not encode, decode or lock network state.
+
+`gTeamVoiceServer` owns authoritative connection-to-player/team state. In this demo every ready connection is assigned to team `1` by the server. Voice packets never provide their own sender or team identity.
+
 ## What Doesn't Need Locks
 
 - `localbox`, `remoteboxes`, key state — only accessed on the main thread (in `update()` and `draw()`).
 - `GameBackend::nodes` map — only accessed in `update()` which runs on the main thread. `attachNode/detachNode` are also called from the main thread (in `setup()` and callbacks within `update()`).
-- `session` (in GameBackendRemote) — set once in `onConnected()` (network thread), read in `broadcastState()` (main thread). This is technically a race, but in practice the session is set before the first `update()` call and only cleared on disconnect.
+- Key state and PTT state are changed on the main thread. Releasing `V`, hiding the canvas or returning to the menu stops transmission; receiving remains active without a key press.
 
 ## Data Flow Diagram
 

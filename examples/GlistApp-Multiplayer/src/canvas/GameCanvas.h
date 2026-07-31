@@ -59,7 +59,7 @@ private:
 
 	uint32_t myid;
 	gBox localbox;
-	bool wkey{}, skey{}, akey{}, dkey{}, qkey{}, ekey{};
+	bool wkey{}, skey{}, akey{}, dkey{}, qkey{}, ekey{}, vkey{};
 
 	// Remote players created dynamically via onJoin callback.
 	// In a real game, this could be gModel, gModelGameObject, etc.

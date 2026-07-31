@@ -3,6 +3,7 @@
  */
 
 #include "AudioCanvas.h"
+#include "canvas/MenuCanvas.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -46,6 +47,8 @@ void AudioCanvas::draw() {
 	bodyfont.drawText("[2] Start Opus encode/decode loopback", left, y);
 	y += 32;
 	bodyfont.drawText("[Space] Stop or restart the selected mode", left, y);
+	y += 32;
+	bodyfont.drawText("[Esc] Stop and return to the main menu", left, y);
 	y += 55;
 	setColor(codecselftestpassed ? 100 : 245, codecselftestpassed ? 220 : 100, codecselftestpassed ? 145 : 100);
 	bodyfont.drawText("Codec self-test: " + codecselftestresult, left, y);
@@ -108,6 +111,9 @@ void AudioCanvas::keyPressed(int key) {
 		} else {
 			statusmessage = "Could not start audio: " + voiceloopback.getLastError();
 		}
+	} else if (key == G_KEY_ESC) {
+		voiceloopback.stop();
+		root->setCurrentCanvas(new MenuCanvas(root));
 	}
 }
 

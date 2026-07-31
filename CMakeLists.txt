@@ -18,6 +18,10 @@ unset(GIPOPUS_PLUGIN_INDEX)
 ##### PLUGIN SOURCES #####
 list(APPEND PLUGIN_SRCS
 		${PLUGIN_DIR}/src/audio/gVoiceLoopback.cpp
+		${PLUGIN_DIR}/src/audio/gVoiceAudioProcessor.cpp
+		${PLUGIN_DIR}/src/audio/gTeamVoice.cpp
+		${PLUGIN_DIR}/src/voice/gTeamVoicePackets.cpp
+		${PLUGIN_DIR}/src/voice/gTeamVoiceServer.cpp
 )
 
 ##### PLUGIN HEADERS #####

@@ -23,9 +23,20 @@
 #include <unordered_map>
 #include <memory>
 #include <functional>
+#include <atomic>
+#include <string>
 
 class GameBackend {
 public:
+	struct VoiceStatus {
+		bool initialized = false;
+		bool transportconnected = false;
+		bool authorized = false;
+		bool transmitting = false;
+		std::string error;
+		gTeamVoice::Stats stats{};
+	};
+
 	virtual ~GameBackend();
 
 	// Called once after construction to start listening or connecting
@@ -52,12 +63,25 @@ public:
 	void enqueueState(uint32_t id, float x, float y, float z);
 	void enqueueLeave(uint32_t id);
 
+	void startVoiceTransmission();
+	void stopVoiceTransmission();
+	VoiceStatus getVoiceStatus() const;
+
+	void handleVoiceSessionPacket(const gTeamVoiceSessionPacket& packet);
+	void handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& packet);
+	void reportMalformedVoicePacket(gTeamVoicePacketError error);
+
 protected:
 	GameBackend();
+	bool initializeVoice();
+	void resetVoiceSession();
+	void shutdownVoice();
+	void setVoiceTransportState(bool connected, const std::string& error = {});
 
 	// Subclasses implement this to send a node's position to remote peers.
 	// Called by update() for each local node.
 	virtual void broadcastState(uint32_t netId, float x, float y, float z) = 0;
+	virtual std::shared_ptr<znet::PeerSession> getVoiceSessionSnapshot() = 0;
 
 private:
 	struct NetNode {
@@ -80,4 +104,10 @@ private:
 
 	std::function<void(uint32_t)> onjoin;
 	std::function<void(uint32_t)> onleave;
+
+	gTeamVoice teamvoice;
+	std::atomic<bool> voiceauthorized{false};
+	std::atomic<bool> voicetransportconnected{false};
+	mutable std::mutex voicetransporterrormutex;
+	std::string voicetransporterror;
 };

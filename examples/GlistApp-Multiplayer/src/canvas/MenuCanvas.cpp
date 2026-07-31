@@ -1,4 +1,5 @@
 #include "MenuCanvas.h"
+#include "canvas/AudioCanvas.h"
 #include "canvas/GameCanvas.h"
 #include "net/GameBackendLocal.h"
 #include "net/GameBackendRemote.h"
@@ -33,11 +34,14 @@ void MenuCanvas::draw() {
 
 	if (state == STATE_MODE_SELECT) {
 		setColor(200, 200, 200);
-		std::string line1 = "Press [1] to Host a server";
-		std::string line2 = "Press [2] to Join as client";
+		std::string line1 = "Press [1] to Host game + team voice";
+		std::string line2 = "Press [2] to Join game + team voice";
+		std::string line3 = "Press [3] for local microphone / Opus test";
 		fontsmall.drawText(line1, cx - fontsmall.getStringWidth(line1) / 2, y);
 		y += 30;
 		fontsmall.drawText(line2, cx - fontsmall.getStringWidth(line2) / 2, y);
+		y += 30;
+		fontsmall.drawText(line3, cx - fontsmall.getStringWidth(line3) / 2, y);
 	} else if (state == STATE_IP_INPUT) {
 		setColor(200, 200, 200);
 		std::string label = ishost ? "Bind IP (Enter for 0.0.0.0):" : "Server IP:";
@@ -81,6 +85,8 @@ void MenuCanvas::keyPressed(int key) {
 			ishost = false;
 			state = STATE_IP_INPUT;
 			ipinput = "";
+		} else if (key == G_KEY_3) {
+			root->setCurrentCanvas(new AudioCanvas(root));
 		}
 	} else if (state == STATE_IP_INPUT) {
 		if (key == G_KEY_ENTER) {

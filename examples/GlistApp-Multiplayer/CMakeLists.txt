@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.10.2)
+cmake_minimum_required (VERSION 3.29)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
@@ -6,9 +6,21 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 ########## PROJECT NAME ##########
 set(APP_NAME GlistApp)
 
+# Support both the standard myglistapps layout and building this example from
+# inside the plugin repository.
+get_filename_component(TOP_DIR "${CMAKE_SOURCE_DIR}/../.." ABSOLUTE)
+if(NOT EXISTS "${TOP_DIR}/GlistEngine/engine/CMakeLists.txt")
+	get_filename_component(TOP_DIR "${CMAKE_SOURCE_DIR}/../../../.." ABSOLUTE)
+endif()
+if(NOT EXISTS "${TOP_DIR}/GlistEngine/engine/CMakeLists.txt")
+	message(FATAL_ERROR "Could not locate GlistEngine from ${CMAKE_SOURCE_DIR}")
+endif()
+
 
 ########## USED PLUGINS LIST ##########
-set(PLUGINS gipMultiplayer)
+if(NOT DEFINED PLUGINS)
+	set(PLUGINS gipMultiplayer)
+endif()
 
 
 ##################################################
@@ -25,8 +37,8 @@ endif()
 # Clang compiler definition for Windows. Do not change this value for other OS.
 # For UNIX like systems, configure the compiler via OS commands.
 if(WIN32)
-	set(CMAKE_C_COMPILER "${CMAKE_SOURCE_DIR}/../../zbin/glistzbin-win64/clang64/bin/clang.exe")
-	set(CMAKE_CXX_COMPILER "${CMAKE_SOURCE_DIR}/../../zbin/glistzbin-win64/clang64/bin/clang++.exe")
+	set(CMAKE_C_COMPILER "${TOP_DIR}/zbin/glistzbin-win64/clang64/bin/clang.exe")
+	set(CMAKE_CXX_COMPILER "${TOP_DIR}/zbin/glistzbin-win64/clang64/bin/clang++.exe")
 endif(WIN32)
 
 
@@ -86,7 +98,6 @@ if(IOS)
 	enable_language(OBJCXX)
 endif()
 
-set(TOP_DIR ${APP_DIR}/../..)
 set(MAIN_DIR ${TOP_DIR}/GlistEngine)
 set(ENGINE_DIR ${MAIN_DIR}/engine)
 
@@ -123,6 +134,12 @@ set(GlistApp_HEADERS
 add_executable(${APP_NAME}
 		${GlistApp_SOURCES}
 		${GlistApp_HEADERS}
+)
+
+add_custom_command(TARGET ${APP_NAME} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+				"${APP_DIR}/assets"
+				"$<TARGET_FILE_DIR:${APP_NAME}>/assets"
 )
 
 ######### APPLE AND IOS SPECIFIC SETTINGS #########

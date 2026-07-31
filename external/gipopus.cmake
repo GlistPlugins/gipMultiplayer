@@ -12,7 +12,7 @@ set(GIPOPUS_GIT_REPOSITORY "https://github.com/GlistPlugins/gipOpus.git"
 set(GIPOPUS_GIT_TAG "860037a58b18768c4b5e30e97d5b43224b84a873"
 		CACHE STRING "gipOpus commit, tag or branch to build against")
 
-if(DEFINED FETCHCONTENT_SOURCE_DIR_GIPOPUS)
+if(DEFINED FETCHCONTENT_SOURCE_DIR_GIPOPUS AND NOT FETCHCONTENT_SOURCE_DIR_GIPOPUS STREQUAL "")
 	file(TO_CMAKE_PATH "${FETCHCONTENT_SOURCE_DIR_GIPOPUS}" _gipopus_source_dir)
 	if(NOT EXISTS "${_gipopus_source_dir}/CMakeLists.txt")
 		message(FATAL_ERROR

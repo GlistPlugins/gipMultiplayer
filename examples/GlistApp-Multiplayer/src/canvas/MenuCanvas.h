@@ -1,9 +1,7 @@
 /*
  * MenuCanvas.h
  *
- * Startup screen that lets the user choose Host or Client mode,
- * enter an IP address and port, then creates the appropriate
- * GameBackend and switches to GameCanvas.
+ * Startup screen for Host, Client and local microphone test modes.
  */
 
 #pragma once

@@ -1,114 +1,312 @@
 #include "GameBackendLocal.h"
+
 #include <algorithm>
+#include <chrono>
+#include <random>
 
-// Handles packets arriving from a connected client.
-// When a client sends its position (NodeStatePacket):
-//   1. Enqueues it into the host's backend so the host sees the remote player.
-//   2. Tags the session with the sender's ID (for identification on disconnect).
-//   3. Rebroadcasts the packet to all OTHER connected clients.
-class ServerPacketHandler : public znet::PacketHandler<ServerPacketHandler, NodeStatePacket, NodeLeavePacket> {
-public:
-	ServerPacketHandler(GameBackendLocal* b, std::shared_ptr<znet::PeerSession> s) : backend(b), peersession(std::move(s)) {}
 
-	void OnPacket(std::shared_ptr<NodeStatePacket> p) {
-		// Let the host's game loop know about this remote node
-		backend->enqueueState(p->netid, p->x, p->y, p->z);
-		// Store the node ID on the session so we can retrieve it on disconnect.
-		// znet's user pointer feature lets us attach arbitrary data to a session.
-		peersession->SetUserPointer(std::make_shared<uint32_t>(p->netid));
-		// Forward to every other client (not back to the sender)
-		backend->broadcast(p, peersession.get());
-	}
-	void OnUnknown(std::shared_ptr<znet::Packet>) {}
+namespace {
 
-private:
-	GameBackendLocal* backend;
-	std::shared_ptr<znet::PeerSession> peersession;
-};
+std::uint64_t makeVoiceSessionId() {
+	std::mt19937_64 generator(static_cast<std::uint64_t>(
+			std::chrono::high_resolution_clock::now().time_since_epoch().count()));
+	std::uint64_t value = generator();
+	return value == 0 ? 1 : value;
+}
 
-// Creates a Codec that knows how to serialize/deserialize our packet types.
-// Each session gets its own Codec instance so the library knows how to
-// encode outgoing packets and decode incoming ones.
-static std::shared_ptr<znet::Codec> makeCodec() {
+std::int64_t steadyMilliseconds() {
+	return std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+std::shared_ptr<znet::Codec> makeServerCodec(gTeamVoiceServer* router) {
 	auto codec = std::make_shared<znet::Codec>();
 	codec->Add(PACKET_NODE_STATE, std::make_unique<NodeStateSerializer>());
 	codec->Add(PACKET_NODE_LEAVE, std::make_unique<NodeLeaveSerializer>());
+	codec->Add(PACKET_CLIENT_READY, std::make_unique<ClientReadySerializer>());
+	gRegisterTeamVoicePackets(*codec, [router](gTeamVoicePacketError error) {
+		router->reportMalformedPacket(error);
+	});
 	return codec;
 }
 
+std::shared_ptr<znet::Codec> makeLocalVoiceCodec(GameBackendLocal* backend) {
+	auto codec = std::make_shared<znet::Codec>();
+	codec->Add(PACKET_NODE_STATE, std::make_unique<NodeStateSerializer>());
+	codec->Add(PACKET_NODE_LEAVE, std::make_unique<NodeLeaveSerializer>());
+	codec->Add(PACKET_CLIENT_READY, std::make_unique<ClientReadySerializer>());
+	gRegisterTeamVoicePackets(*codec, [backend](gTeamVoicePacketError error) {
+		backend->reportMalformedVoicePacket(error);
+	});
+	return codec;
+}
+
+}
+
+class ServerPacketHandler : public znet::PacketHandler<ServerPacketHandler, NodeStatePacket, NodeLeavePacket,
+		ClientReadyPacket, gTeamVoiceUplinkPacket> {
+public:
+	ServerPacketHandler(GameBackendLocal* backend, const std::shared_ptr<znet::PeerSession>& session)
+			: backend(backend), connectionid(session->id()), peersession(session) {
+	}
+
+	void OnPacket(std::shared_ptr<NodeStatePacket> packet) {
+		auto session = peersession.lock();
+		if (!session) return;
+		backend->enqueueState(packet->netid, packet->x, packet->y, packet->z);
+		session->SetUserPointer(std::make_shared<uint32_t>(packet->netid));
+		backend->broadcast(packet, session.get());
+	}
+
+	void OnPacket(std::shared_ptr<NodeLeavePacket>) {
+	}
+
+	void OnPacket(std::shared_ptr<ClientReadyPacket>) {
+		backend->authorizeVoicePeer(connectionid);
+	}
+
+	void OnPacket(std::shared_ptr<gTeamVoiceUplinkPacket> packet) {
+		backend->handleVoiceUplink(connectionid, *packet);
+	}
+
+	void OnUnknown(std::shared_ptr<znet::Packet>) {
+	}
+
+private:
+	GameBackendLocal* backend;
+	gTeamVoiceServer::ConnectionId connectionid;
+	std::weak_ptr<znet::PeerSession> peersession;
+};
+
+class LocalVoicePacketHandler : public znet::PacketHandler<LocalVoicePacketHandler, NodeStatePacket, NodeLeavePacket,
+		gTeamVoiceSessionPacket, gTeamVoiceDownlinkPacket> {
+public:
+	explicit LocalVoicePacketHandler(GameBackendLocal* backend) : backend(backend) {
+	}
+
+	void OnPacket(std::shared_ptr<NodeStatePacket>) {
+	}
+
+	void OnPacket(std::shared_ptr<NodeLeavePacket>) {
+	}
+
+	void OnPacket(std::shared_ptr<gTeamVoiceSessionPacket> packet) {
+		backend->handleVoiceSessionPacket(*packet);
+	}
+
+	void OnPacket(std::shared_ptr<gTeamVoiceDownlinkPacket> packet) {
+		backend->handleVoiceDownlinkPacket(*packet);
+	}
+
+	void OnUnknown(std::shared_ptr<znet::Packet>) {
+	}
+
+private:
+	GameBackendLocal* backend;
+};
+
 GameBackendLocal::GameBackendLocal(const std::string& bindIp, uint16_t port)
-	: bindip(bindIp), port(port) {
+		: bindip(bindIp), port(port), voicesessionid(makeVoiceSessionId()) {
+}
+
+GameBackendLocal::~GameBackendLocal() {
+	stopVoiceTransmission();
+	if (localvoiceconnectionthread.joinable()) localvoiceconnectionthread.join();
+	if (localvoiceclient) {
+		localvoiceclient->Disconnect();
+		localvoiceclient->Wait();
+	}
+	{
+		std::lock_guard<std::mutex> lock(localvoicesessionmutex);
+		localvoicesession.reset();
+	}
+	if (server) {
+		server->Stop();
+		server->Wait();
+	}
+	{
+		std::lock_guard<std::mutex> lock(sessionsmutex);
+		sessions.clear();
+	}
+	voicerouter.reset();
+	shutdownVoice();
 }
 
 void GameBackendLocal::start() {
-	server = std::make_unique<znet::Server>(znet::ServerConfig{bindip, port});
-
-	// znet fires events on a background network thread.
-	// We dispatch them to our member functions using ZNET_BIND_FN.
-	server->SetEventCallback([this](znet::Event& ev) {
-		znet::EventDispatcher d{ev};
-		d.Dispatch<znet::ServerClientConnectedEvent>(ZNET_BIND_FN(onPeerConnected));
-		d.Dispatch<znet::ServerClientDisconnectedEvent>(ZNET_BIND_FN(onPeerDisconnected));
+	initializeVoice();
+	server = std::make_unique<znet::Server>(znet::ServerConfig{
+			bindip, port, std::chrono::seconds(10), znet::ConnectionType::ZDT});
+	server->SetEventCallback([this](znet::Event& event) {
+		znet::EventDispatcher dispatcher{event};
+		dispatcher.Dispatch<znet::ServerClientConnectedEvent>(ZNET_BIND_FN(onPeerConnected));
+		dispatcher.Dispatch<znet::ServerClientDisconnectedEvent>(ZNET_BIND_FN(onPeerDisconnected));
 	});
+	if (server->Bind() != znet::Result::Success || server->Listen() != znet::Result::Success) {
+		setVoiceTransportState(false, "Could not start the ZDT server");
+		return;
+	}
 
-	server->Bind();
-	server->Listen(); // Non-blocking, starts accepting connections in the background
+	std::string localaddress = bindip == "0.0.0.0" ? "127.0.0.1" : bindip;
+	localvoiceclient = std::make_unique<znet::Client>(znet::ClientConfig{
+			localaddress, port, std::chrono::seconds(10), znet::ConnectionType::ZDT});
+	localvoiceclient->SetEventCallback([this](znet::Event& event) {
+		znet::EventDispatcher dispatcher{event};
+		dispatcher.Dispatch<znet::ClientConnectedToServerEvent>(ZNET_BIND_FN(onLocalVoiceConnected));
+		dispatcher.Dispatch<znet::ClientDisconnectedFromServerEvent>(ZNET_BIND_FN(onLocalVoiceDisconnected));
+	});
+	localconnectiondeadlinemilliseconds.store(steadyMilliseconds() + 15000, std::memory_order_release);
+	localvoiceconnectionthread = std::thread([this]() {
+		if (localvoiceclient->Bind() != znet::Result::Success) {
+			std::lock_guard<std::mutex> lock(localvoicesessionmutex);
+			localconnectiondeadlinemilliseconds.store(0, std::memory_order_release);
+			setVoiceTransportState(false, "Could not bind the host voice ZDT client");
+			return;
+		}
+		if (localvoiceclient->Connect() != znet::Result::Success) {
+			std::lock_guard<std::mutex> lock(localvoicesessionmutex);
+			localconnectiondeadlinemilliseconds.store(0, std::memory_order_release);
+			setVoiceTransportState(false, "Could not connect the host voice ZDT client");
+		}
+	});
 }
 
-// Sends a packet to all connected clients, optionally excluding one (the sender).
 void GameBackendLocal::broadcast(const std::shared_ptr<znet::Packet>& packet, znet::PeerSession* exclude) {
-	std::lock_guard<std::mutex> lk(sessionsmutex);
-	for (auto& s : sessions) {
-		if (s && s.get() != exclude) s->SendPacket(packet);
+	std::lock_guard<std::mutex> lock(sessionsmutex);
+	for (auto& session : sessions) {
+		if (session && session.get() != exclude) session->SendPacket(packet);
 	}
 }
 
-// Called on the network thread when a new client connects.
-// Sets up the session with our codec and packet handler, then adds it to the list.
-bool GameBackendLocal::onPeerConnected(znet::ServerClientConnectedEvent& e) {
-	auto sess = e.session();
-	sess->SetCodec(makeCodec());
-	sess->SetHandler(std::make_shared<ServerPacketHandler>(this, sess));
-	std::lock_guard<std::mutex> lk(sessionsmutex);
-	sessions.push_back(sess);
-	return false;
+void GameBackendLocal::handleVoiceUplink(gTeamVoiceServer::ConnectionId connectionid,
+		const gTeamVoiceUplinkPacket& packet) {
+	voicerouter.handleVoicePacket(connectionid, packet);
 }
 
-// Called on the network thread when a client disconnects.
-// Retrieves the node ID we stored on the session, removes the session,
-// and notifies both the host backend and remaining clients.
-bool GameBackendLocal::onPeerDisconnected(znet::ServerClientDisconnectedEvent& e) {
-	// Retrieve the node ID we tagged this session with in ServerPacketHandler
-	uint32_t leavingid = 0;
-	auto idptr = e.session()->user_ptr_typed<uint32_t>();
-	if (idptr) leavingid = *idptr;
+void GameBackendLocal::authorizeVoicePeer(gTeamVoiceServer::ConnectionId connectionid) {
+	// This demo has no login system, so the server deliberately assigns every
+	// ready connection to its single team. Production code must source these
+	// values from authenticated game state.
+	gTeamVoiceServer::PeerState state;
+	state.playerid = connectionid;
+	state.teamid = 1;
+	state.sessionid = voicesessionid;
+	state.cantransmit = true;
+	state.canreceive = true;
+	bool published = voicerouter.setPeerState(connectionid, state);
+	std::lock_guard<std::mutex> lock(pendingvoicemutex);
+	if (published) {
+		pendingvoicepeers.erase(connectionid);
+	} else if (connectedvoicepeers.find(connectionid) != connectedvoicepeers.end()) {
+		pendingvoicepeers.insert(connectionid);
+	}
+}
 
-	// Remove the disconnected session from our list
+void GameBackendLocal::retryVoiceAuthorizations() {
+	auto now = std::chrono::steady_clock::now();
+	std::vector<gTeamVoiceServer::ConnectionId> pending;
 	{
-		std::lock_guard<std::mutex> lk(sessionsmutex);
-		sessions.erase(std::remove_if(sessions.begin(), sessions.end(),
-			[&](const std::shared_ptr<znet::PeerSession>& s) { return s.get() == e.session().get(); }),
-			sessions.end());
+		std::lock_guard<std::mutex> lock(pendingvoicemutex);
+		if (now < nextvoiceretry) return;
+		nextvoiceretry = now + std::chrono::milliseconds(250);
+		pending.assign(pendingvoicepeers.begin(), pendingvoicepeers.end());
 	}
+	for (auto connectionid : pending) authorizeVoicePeer(connectionid);
+}
 
+bool GameBackendLocal::onPeerConnected(znet::ServerClientConnectedEvent& event) {
+	auto session = event.session();
+	session->SetCodec(makeServerCodec(&voicerouter));
+	if (!voicerouter.addPeer(session)) {
+		session->Close();
+		return false;
+	}
+	{
+		std::lock_guard<std::mutex> lock(pendingvoicemutex);
+		connectedvoicepeers.insert(session->id());
+	}
+	session->SetHandler(std::make_shared<ServerPacketHandler>(this, session));
+	std::lock_guard<std::mutex> lock(sessionsmutex);
+	sessions.push_back(session);
+	return false;
+}
+
+bool GameBackendLocal::onPeerDisconnected(znet::ServerClientDisconnectedEvent& event) {
+	voicerouter.removePeer(event.session()->id());
+	{
+		std::lock_guard<std::mutex> lock(pendingvoicemutex);
+		connectedvoicepeers.erase(event.session()->id());
+		pendingvoicepeers.erase(event.session()->id());
+	}
+	uint32_t leavingid = 0;
+	auto idptr = event.session()->user_ptr_typed<uint32_t>();
+	if (idptr) leavingid = *idptr;
+	{
+		std::lock_guard<std::mutex> lock(sessionsmutex);
+		sessions.erase(std::remove_if(sessions.begin(), sessions.end(),
+				[&](const std::shared_ptr<znet::PeerSession>& session) {
+					return session.get() == event.session().get();
+				}), sessions.end());
+	}
 	if (leavingid != 0) {
-		// Queue a leave event for the host's game loop
 		enqueueLeave(leavingid);
-		// Tell all remaining clients to remove this node
-		auto lp = std::make_shared<NodeLeavePacket>();
-		lp->netid = leavingid;
-		broadcast(lp);
+		auto packet = std::make_shared<NodeLeavePacket>();
+		packet->netid = leavingid;
+		broadcast(packet);
 	}
 	return false;
 }
 
-// Called by GameBackend::update() for each local node every frame.
-// Sends the node's current position to all connected clients.
+bool GameBackendLocal::onLocalVoiceConnected(znet::ClientConnectedToServerEvent& event) {
+	auto session = event.session();
+	session->SetCodec(makeLocalVoiceCodec(this));
+	session->SetHandler(std::make_shared<LocalVoicePacketHandler>(this));
+	{
+		std::lock_guard<std::mutex> lock(localvoicesessionmutex);
+		localvoicesession = session;
+		localconnectiondeadlinemilliseconds.store(0, std::memory_order_release);
+		setVoiceTransportState(true);
+	}
+	localreadyqueued.store(session->SendPacket(std::make_shared<ClientReadyPacket>(), getGameControlSendOptions()),
+			std::memory_order_release);
+	return false;
+}
+
+bool GameBackendLocal::onLocalVoiceDisconnected(znet::ClientDisconnectedFromServerEvent&) {
+	{
+		std::lock_guard<std::mutex> lock(localvoicesessionmutex);
+		localvoicesession.reset();
+		localconnectiondeadlinemilliseconds.store(0, std::memory_order_release);
+		setVoiceTransportState(false, "Host voice ZDT client disconnected");
+	}
+	localreadyqueued.store(false, std::memory_order_release);
+	resetVoiceSession();
+	return false;
+}
+
+std::shared_ptr<znet::PeerSession> GameBackendLocal::getVoiceSessionSnapshot() {
+	retryVoiceAuthorizations();
+	std::shared_ptr<znet::PeerSession> snapshot;
+	{
+		std::lock_guard<std::mutex> lock(localvoicesessionmutex);
+		snapshot = localvoicesession;
+		std::int64_t deadline = localconnectiondeadlinemilliseconds.load(std::memory_order_acquire);
+		if (!snapshot && deadline != 0 && steadyMilliseconds() >= deadline &&
+				localconnectiondeadlinemilliseconds.exchange(0, std::memory_order_acq_rel) != 0) {
+			setVoiceTransportState(false, "Timed out waiting for the host encrypted ZDT session");
+		}
+	}
+	if (snapshot && !localreadyqueued.load(std::memory_order_acquire) &&
+			snapshot->SendPacket(std::make_shared<ClientReadyPacket>(), getGameControlSendOptions())) {
+		localreadyqueued.store(true, std::memory_order_release);
+	}
+	return snapshot;
+}
+
 void GameBackendLocal::broadcastState(uint32_t netid, float x, float y, float z) {
-	auto p = std::make_shared<NodeStatePacket>();
-	p->netid = netid;
-	p->x = x;
-	p->y = y;
-	p->z = z;
-	broadcast(p);
+	auto packet = std::make_shared<NodeStatePacket>();
+	packet->netid = netid;
+	packet->x = x;
+	packet->y = y;
+	packet->z = z;
+	broadcast(packet);
 }

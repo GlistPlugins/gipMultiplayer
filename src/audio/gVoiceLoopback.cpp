@@ -4,6 +4,8 @@
 
 #include "audio/gVoiceLoopback.h"
 
+#include "audio/gVoiceConstants.h"
+
 #include "gSound.h"
 #include "gipOpus.h"
 #include "miniaudio.h"
@@ -21,15 +23,11 @@
 
 namespace {
 
-constexpr int SAMPLERATE = 48000;
-constexpr int CHANNELS = 1;
-constexpr int OPUS_BITRATE = 24000;
-constexpr int OPUS_FRAME_SIZE = 960;
 constexpr int OPUS_MAX_PACKET_SIZE = 1275;
 constexpr int DELAY_MILLISECONDS = 2000;
-constexpr int DELAY_FRAMES = SAMPLERATE * DELAY_MILLISECONDS / 1000;
-constexpr int DELAY_PACKETS = DELAY_FRAMES / OPUS_FRAME_SIZE;
-constexpr std::size_t WORKER_RING_FRAMES = SAMPLERATE;
+constexpr int DELAY_FRAMES = gvoice::SAMPLERATE * DELAY_MILLISECONDS / 1000;
+constexpr int DELAY_PACKETS = DELAY_FRAMES / gvoice::FRAME_SAMPLES;
+constexpr std::size_t WORKER_RING_FRAMES = gvoice::SAMPLERATE;
 
 class AudioRingBuffer {
 public:
@@ -111,16 +109,16 @@ public:
 		mode = newmode;
 		resetBuffers();
 		resetStats();
-		if (mode == MODE_OPUS && !codec.setup(SAMPLERATE, CHANNELS, OPUS_BITRATE)) {
+		if (mode == MODE_OPUS && !codec.setup(gvoice::SAMPLERATE, gvoice::CHANNELS, gvoice::BITRATE)) {
 			lasterror = codec.getLastError();
 			return false;
 		}
 		ma_device_config config = ma_device_config_init(ma_device_type_duplex);
 		config.capture.format = ma_format_s16;
-		config.capture.channels = CHANNELS;
+		config.capture.channels = gvoice::CHANNELS;
 		config.playback.format = ma_format_s16;
-		config.playback.channels = CHANNELS;
-		config.sampleRate = SAMPLERATE;
+		config.playback.channels = gvoice::CHANNELS;
+		config.sampleRate = gvoice::SAMPLERATE;
 		config.periodSizeInFrames = 480;
 		config.dataCallback = dataCallback;
 		config.notificationCallback = notificationCallback;
@@ -220,17 +218,17 @@ public:
 	}
 
 	void workerLoop() {
-		std::array<std::int16_t, OPUS_FRAME_SIZE> input;
-		std::array<std::int16_t, OPUS_FRAME_SIZE> decoded;
+		std::array<std::int16_t, gvoice::FRAME_SAMPLES> input;
+		std::array<std::int16_t, gvoice::FRAME_SAMPLES> decoded;
 		std::deque<CompressedFrame> delayedpackets;
 		while (running.load(std::memory_order_acquire)) {
-			if (capturering.available() < OPUS_FRAME_SIZE) {
+			if (capturering.available() < gvoice::FRAME_SAMPLES) {
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 				continue;
 			}
 			capturering.read(input.data(), input.size());
 			CompressedFrame frame;
-			frame.size = codec.encode(input.data(), OPUS_FRAME_SIZE, frame.data.data(), frame.data.size());
+			frame.size = codec.encode(input.data(), gvoice::FRAME_SAMPLES, frame.data.data(), frame.data.size());
 			pcmbytes.fetch_add(input.size() * sizeof(std::int16_t), std::memory_order_relaxed);
 			if (frame.size < 0) {
 				codecerrors.fetch_add(1, std::memory_order_relaxed);
@@ -317,16 +315,16 @@ void gVoiceLoopback::stop() {
 
 bool gVoiceLoopback::runCodecSelfTest(std::string& result) {
 	gipOpus testcodec;
-	if (!testcodec.setup(SAMPLERATE, CHANNELS, OPUS_BITRATE)) {
+	if (!testcodec.setup(gvoice::SAMPLERATE, gvoice::CHANNELS, gvoice::BITRATE)) {
 		result = testcodec.getLastError();
 		return false;
 	}
-	std::array<std::int16_t, OPUS_FRAME_SIZE> input;
-	std::array<std::int16_t, OPUS_FRAME_SIZE> output;
+	std::array<std::int16_t, gvoice::FRAME_SAMPLES> input;
+	std::array<std::int16_t, gvoice::FRAME_SAMPLES> output;
 	std::array<unsigned char, OPUS_MAX_PACKET_SIZE> packet;
 	constexpr double VOICE_PI = 3.14159265358979323846;
 	for (std::size_t i = 0; i < input.size(); i++) {
-		input[i] = static_cast<std::int16_t>(std::sin(2.0 * VOICE_PI * 440.0 * i / SAMPLERATE) * 12000.0);
+		input[i] = static_cast<std::int16_t>(std::sin(2.0 * VOICE_PI * 440.0 * i / gvoice::SAMPLERATE) * 12000.0);
 	}
 	int encodedbytes = testcodec.encode(input.data(), input.size(), packet.data(), packet.size());
 	if (encodedbytes <= 0) {
@@ -334,7 +332,7 @@ bool gVoiceLoopback::runCodecSelfTest(std::string& result) {
 		return false;
 	}
 	int decodedframes = testcodec.decode(packet.data(), encodedbytes, output.data(), output.size());
-	if (decodedframes != OPUS_FRAME_SIZE) {
+	if (decodedframes != gvoice::FRAME_SAMPLES) {
 		result = decodedframes < 0 ? testcodec.getLastError() : "Opus decoded an unexpected frame count";
 		return false;
 	}

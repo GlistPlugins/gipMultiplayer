@@ -4,6 +4,7 @@ GameBackend::GameBackend() {
 }
 
 GameBackend::~GameBackend() {
+	shutdownVoice();
 }
 
 void GameBackend::attachNode(uint32_t netid, gNode* node, bool local) {
@@ -30,6 +31,64 @@ void GameBackend::enqueueState(uint32_t id, float x, float y, float z) {
 void GameBackend::enqueueLeave(uint32_t id) {
 	std::lock_guard<std::mutex> lk(queuemutex);
 	queue.push_back({id, 0, 0, 0, true});
+}
+
+bool GameBackend::initializeVoice() {
+	return teamvoice.initialize();
+}
+
+void GameBackend::startVoiceTransmission() {
+	teamvoice.startTransmitting();
+}
+
+void GameBackend::stopVoiceTransmission() {
+	teamvoice.stopTransmitting();
+}
+
+GameBackend::VoiceStatus GameBackend::getVoiceStatus() const {
+	VoiceStatus status;
+	status.initialized = teamvoice.isInitialized();
+	status.transportconnected = voicetransportconnected.load(std::memory_order_acquire);
+	status.authorized = voiceauthorized.load(std::memory_order_acquire);
+	status.transmitting = teamvoice.isTransmitting();
+	status.error = teamvoice.getLastError();
+	if (status.error.empty()) {
+		std::lock_guard<std::mutex> lock(voicetransporterrormutex);
+		status.error = voicetransporterror;
+	}
+	status.stats = teamvoice.getStats();
+	return status;
+}
+
+void GameBackend::handleVoiceSessionPacket(const gTeamVoiceSessionPacket& packet) {
+	teamvoice.handleSessionPacket(packet);
+	voiceauthorized.store(packet.enabled && gValidateTeamVoiceSessionPacket(packet) == gTeamVoicePacketError::NONE,
+			std::memory_order_release);
+}
+
+void GameBackend::handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& packet) {
+	teamvoice.handleVoicePacket(packet);
+}
+
+void GameBackend::reportMalformedVoicePacket(gTeamVoicePacketError error) {
+	teamvoice.reportMalformedPacket(error);
+}
+
+void GameBackend::resetVoiceSession() {
+	voiceauthorized.store(false, std::memory_order_release);
+	teamvoice.stopTransmitting();
+	teamvoice.resetSession();
+}
+
+void GameBackend::shutdownVoice() {
+	resetVoiceSession();
+	teamvoice.shutdown();
+}
+
+void GameBackend::setVoiceTransportState(bool connected, const std::string& error) {
+	voicetransportconnected.store(connected, std::memory_order_release);
+	std::lock_guard<std::mutex> lock(voicetransporterrormutex);
+	voicetransporterror = error;
 }
 
 void GameBackend::update(float deltaTime) {
@@ -105,4 +164,7 @@ void GameBackend::update(float deltaTime) {
 			broadcastState(kv.first, cx, cy, cz);
 		}
 	}
+
+	auto voicesession = getVoiceSessionSnapshot();
+	if (voicesession) teamvoice.updateNetwork(*voicesession);
 }

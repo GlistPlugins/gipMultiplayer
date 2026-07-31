@@ -8,6 +8,8 @@
 #ifndef GIPMULTIPLAYER_H
 #define GIPMULTIPLAYER_H
 
+#include <cstring>
+
 #include "znet/packet_handler.h"
 #include "znet/peer_session.h"
 #include "znet/init.h"
@@ -18,6 +20,10 @@
 #include "znet/event.h"
 #include "znet/server_events.h"
 #include "znet/client_events.h"
+
+#include "voice/gTeamVoicePackets.h"
+#include "voice/gTeamVoiceServer.h"
+#include "audio/gTeamVoice.h"
 
 namespace gipMultiplayer = znet;
 

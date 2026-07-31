@@ -1,4 +1,5 @@
 #include "GameCanvas.h"
+#include "canvas/MenuCanvas.h"
 #include <random>
 #include <chrono>
 
@@ -12,6 +13,7 @@ GameCanvas::GameCanvas(gApp* root, std::unique_ptr<GameBackend> backend)
 }
 
 GameCanvas::~GameCanvas() {
+	backend->stopVoiceTransmission();
 }
 
 void GameCanvas::setup() {
@@ -66,7 +68,7 @@ void GameCanvas::draw() {
 
 	enableAlphaBlending();
 	setColor(255, 255, 255, 100);
-	boardrect.draw(0, 0, 120, 200, true);
+	boardrect.draw(0, 0, 420, 250, true);
 	disableAlphaBlending();
 
 	setColor(255, 255, 255);
@@ -86,6 +88,28 @@ void GameCanvas::draw() {
 		index++;
 	}
 
+	auto voice = backend->getVoiceStatus();
+	std::string voicestate;
+	if (!voice.initialized) {
+		voicestate = "ERROR";
+	} else if (!voice.transportconnected) {
+		voicestate = voice.error.empty() ? "CONNECTING" : "NETWORK ERROR";
+	} else if (!voice.authorized) {
+		voicestate = "WAITING FOR SERVER";
+	} else if (voice.transmitting) {
+		voicestate = "TRANSMITTING";
+	} else {
+		voicestate = "LISTENING";
+	}
+	setColor(voice.authorized ? 100 : 245, voice.authorized ? 220 : 140, 120);
+	font.drawText("Voice: " + voicestate, 5, 150);
+	setColor(255, 255, 255);
+	font.drawText("Hold [V] to talk. Listening is always active.", 5, 170);
+	font.drawText("Sent/received/decoded: " + std::to_string(voice.stats.sentpackets) + "/" +
+			std::to_string(voice.stats.receivedpackets) + "/" + std::to_string(voice.stats.decodedpackets), 5, 190);
+	font.drawText("Active speakers: " + std::to_string(voice.stats.activespeakers) + "  [Esc] Menu", 5, 210);
+	if (!voice.error.empty()) font.drawText(voice.error, 5, 230);
+
 	setColor(255, 255, 255);
 }
 
@@ -96,6 +120,14 @@ void GameCanvas::keyPressed(int key) {
 	if (key == G_KEY_D) dkey = true;
 	if (key == G_KEY_Q) qkey = true;
 	if (key == G_KEY_E) ekey = true;
+	if (key == G_KEY_V && !vkey) {
+		vkey = true;
+		backend->startVoiceTransmission();
+	}
+	if (key == G_KEY_ESC) {
+		backend->stopVoiceTransmission();
+		root->setCurrentCanvas(new MenuCanvas(root));
+	}
 }
 
 void GameCanvas::keyReleased(int key) {
@@ -105,6 +137,10 @@ void GameCanvas::keyReleased(int key) {
 	if (key == G_KEY_D) dkey = false;
 	if (key == G_KEY_Q) qkey = false;
 	if (key == G_KEY_E) ekey = false;
+	if (key == G_KEY_V) {
+		vkey = false;
+		backend->stopVoiceTransmission();
+	}
 }
 
 void GameCanvas::charPressed(unsigned int codepoint) {
@@ -138,4 +174,6 @@ void GameCanvas::showNotify() {
 }
 
 void GameCanvas::hideNotify() {
+	wkey = skey = akey = dkey = qkey = ekey = vkey = false;
+	backend->stopVoiceTransmission();
 }
