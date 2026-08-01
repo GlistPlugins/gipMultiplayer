@@ -32,5 +32,5 @@ if ($LASTEXITCODE -ne 0) {
 
 $executable = Join-Path $buildDir "GlistApp.exe"
 if (-not $BuildOnly) {
-	Start-Process -FilePath $executable -WorkingDirectory $buildDir -Wait
+	Start-Process -FilePath $executable -WorkingDirectory $PSScriptRoot -Wait
 }

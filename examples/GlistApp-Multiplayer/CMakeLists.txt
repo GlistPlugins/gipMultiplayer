@@ -136,12 +136,6 @@ add_executable(${APP_NAME}
 		${GlistApp_HEADERS}
 )
 
-add_custom_command(TARGET ${APP_NAME} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_directory
-				"${APP_DIR}/assets"
-				"$<TARGET_FILE_DIR:${APP_NAME}>/assets"
-)
-
 ######### APPLE AND IOS SPECIFIC SETTINGS #########
 
 if(IOS)
