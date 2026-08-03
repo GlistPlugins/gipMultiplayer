@@ -24,14 +24,29 @@ set(ZNET_ZSTD_GIT_TAG "48c0ed73625272cb7445183b5e256b5d0a130316"
 set(ZNET_CXX_STANDARD "17"
 		CACHE STRING "C++ standard used to build znet (14, 17, 20 or 23)")
 
+# znet 3.1 enables -Werror for its own sources. GCC 15 diagnoses an upstream
+# Win32 sign conversion that older supported toolchains accept, so keep that
+# dependency-local warning from blocking consumers of this plugin.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+	set(ZNET_ENABLE_STRICT_WARNINGS OFF CACHE BOOL "Disable znet -Werror with GCC 15+" FORCE)
+endif()
+
 ##### OPENSSL #####
 # znet does find_package(OpenSSL REQUIRED). On Windows OpenSSL ships with the
 # glist toolchain, which is not a place CMake looks by default. On Android,
 # there's no system OpenSSL at all - use gipAndroid's prebuilt per-ABI libs.
 if(WIN32)
-	set(OPENSSL_ROOT_DIR "C:/dev/glist/zbin/glistzbin-win64/clang64")
-	set(OPENSSL_INCLUDE_DIR "C:/dev/glist/zbin/glistzbin-win64/clang64/include")
-	set(OPENSSL_CRYPTO_LIBRARY "C:/dev/glist/zbin/glistzbin-win64/clang64/lib/libcrypto.lib")
+	# Keep command-line/toolchain overrides intact. Otherwise use Glist's active
+	# toolchain root instead of assuming the checkout lives under C:/dev/glist.
+	if(NOT DEFINED OPENSSL_ROOT_DIR OR OPENSSL_ROOT_DIR STREQUAL "")
+		if(DEFINED MINGW64_DIR AND NOT MINGW64_DIR STREQUAL "")
+			set(OPENSSL_ROOT_DIR "${MINGW64_DIR}")
+		else()
+			get_filename_component(_znet_compiler_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+			get_filename_component(OPENSSL_ROOT_DIR "${_znet_compiler_bin}" DIRECTORY)
+			unset(_znet_compiler_bin)
+		endif()
+	endif()
 elseif(ANDROID)
 	set(OPENSSL_ROOT_DIR "${PLUGINS_DIR}/gipAndroid/libs/openssl/${ANDROID_ABI}")
 	set(OPENSSL_INCLUDE_DIR "${OPENSSL_ROOT_DIR}/include")
@@ -85,6 +100,12 @@ FetchContent_Declare(znet
 		SOURCE_SUBDIR znet
 )
 FetchContent_MakeAvailable(znet)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
+	# buffer.h uses std::memcpy/std::memset without including <cstring> and GCC
+	# 15 no longer exposes those declarations transitively in every znet TU.
+	target_compile_options(znet PRIVATE -include cstring)
+endif()
 
 set_target_properties(znet PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
