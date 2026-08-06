@@ -141,8 +141,8 @@ gTeamVoicePacketError gValidateTeamVoiceDownlinkPacket(const gTeamVoiceDownlinkP
 
 void gRegisterTeamVoicePackets(znet::Codec& codec, gTeamVoicePacketErrorCallback errorcallback = {});
 
-SendOptions gGetTeamVoiceControlSendOptions();
-SendOptions gGetTeamVoiceDataSendOptions();
+znet::SendOptions gGetTeamVoiceControlSendOptions();
+znet::SendOptions gGetTeamVoiceDataSendOptions();
 
 bool gIsTeamVoiceSequenceNewer(std::uint32_t sequence, std::uint32_t reference);
 std::uint32_t gTeamVoiceSequenceDistance(std::uint32_t newer, std::uint32_t older);
