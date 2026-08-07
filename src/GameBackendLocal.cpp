@@ -48,8 +48,8 @@ void GameBackendLocal::start() {
 	// We dispatch them to our member functions using ZNET_BIND_FN.
 	server->SetEventCallback([this](znet::Event& ev) {
 		znet::EventDispatcher d{ev};
-		d.Dispatch<znet::ServerClientConnectedEvent>(ZNET_BIND_FN(onPeerConnected));
-		d.Dispatch<znet::ServerClientDisconnectedEvent>(ZNET_BIND_FN(onPeerDisconnected));
+		d.Dispatch<znet::IncomingClientConnectedEvent>(ZNET_BIND_FN(onPeerConnected));
+		d.Dispatch<znet::IncomingClientDisconnectedEvent>(ZNET_BIND_FN(onPeerDisconnected));
 	});
 
 	server->Bind();
@@ -67,7 +67,7 @@ void GameBackendLocal::broadcast(const std::shared_ptr<znet::Packet>& packet, zn
 
 // Called on the network thread when a new client connects.
 // Sets up the session with our codec and packet handler, then adds it to the list.
-bool GameBackendLocal::onPeerConnected(znet::ServerClientConnectedEvent& e) {
+bool GameBackendLocal::onPeerConnected(znet::IncomingClientConnectedEvent& e) {
 	auto sess = e.session();
 	sess->SetCodec(makeCodec());
 	sess->SetHandler(std::make_shared<ServerPacketHandler>(this, sess));
@@ -79,10 +79,10 @@ bool GameBackendLocal::onPeerConnected(znet::ServerClientConnectedEvent& e) {
 // Called on the network thread when a client disconnects.
 // Retrieves the node ID we stored on the session, removes the session,
 // and notifies both the host backend and remaining clients.
-bool GameBackendLocal::onPeerDisconnected(znet::ServerClientDisconnectedEvent& e) {
+bool GameBackendLocal::onPeerDisconnected(znet::IncomingClientDisconnectedEvent& e) {
 	// Retrieve the node ID we tagged this session with in ServerPacketHandler
 	uint32_t leavingid = 0;
-	auto idptr = e.session()->user_ptr_typed<uint32_t>();
+	auto idptr = e.session()->template user_pointer<uint32_t>();
 	if (idptr) leavingid = *idptr;
 
 	// Remove the disconnected session from our list
