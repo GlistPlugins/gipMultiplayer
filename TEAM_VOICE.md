@@ -1,5 +1,7 @@
 # Team Voice Integration
 
+New here? Start with [TUTORIAL.md](TUTORIAL.md) for a guided setup and first run.
+
 `gTeamVoice` and `gTeamVoiceServer` implement server-authoritative team voice over znet's encrypted ZDT transport. Audio is 48 kHz mono signed 16-bit PCM, encoded as 20 ms Opus frames at 24 kbit/s.
 
 ## Data Flow

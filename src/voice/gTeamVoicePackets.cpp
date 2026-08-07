@@ -291,19 +291,19 @@ void gRegisterTeamVoicePackets(znet::Codec& codec, gTeamVoicePacketErrorCallback
 	codec.Add(G_TEAM_VOICE_DOWNLINK_PACKET_ID, std::make_unique<gTeamVoiceDownlinkSerializer>(std::move(errorcallback)));
 }
 
-znet::SendOptions gGetTeamVoiceControlSendOptions() {
-    znet::SendOptions options;
-    options.Set<znet::ReliableKey>(true);
-    options.Set<znet::OrderedKey>(true);
-    options.Set<znet::ChannelKey>(G_TEAM_VOICE_CONTROL_CHANNEL);
+SendOptions gGetTeamVoiceControlSendOptions() {
+    SendOptions options;
+    options.Set<ReliableKey>(true);
+    options.Set<OrderedKey>(true);
+    options.Set<ChannelKey>(G_TEAM_VOICE_CONTROL_CHANNEL);
     return options;
 }
 
-znet::SendOptions gGetTeamVoiceDataSendOptions() {
-    znet::SendOptions options;
-    options.Set<znet::ReliableKey>(false);
-    options.Set<znet::OrderedKey>(false);
-    options.Set<znet::ChannelKey>(G_TEAM_VOICE_DATA_CHANNEL);
+SendOptions gGetTeamVoiceDataSendOptions() {
+    SendOptions options;
+    options.Set<ReliableKey>(false);
+    options.Set<OrderedKey>(false);
+    options.Set<ChannelKey>(G_TEAM_VOICE_DATA_CHANNEL);
     return options;
 }
 

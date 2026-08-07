@@ -80,7 +80,7 @@ voice.stopTransmitting();
 
 Register the three packet serializers with the same `znet::Codec` used by the game. On the server, call `gTeamVoiceServer::setPeerState()` only from authenticated game state whenever a player joins a match, changes team or changes voice permissions. Call `removePeer()` on disconnect.
 
-See [TEAM_VOICE.md](TEAM_VOICE.md) for complete server/client handlers, lifecycle rules, threading, protocol behavior and diagnostics.
+New here? Start with [TUTORIAL.md](TUTORIAL.md), then see [TEAM_VOICE.md](TEAM_VOICE.md) for complete server/client handlers, lifecycle rules, threading, protocol behavior and diagnostics.
 
 ### Two-Computer Voice Test
 

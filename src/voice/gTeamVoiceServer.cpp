@@ -103,9 +103,9 @@ bool gTeamVoiceServer::addPeer(ConnectionId connectionid, SendCallback sendcallb
 bool gTeamVoiceServer::addPeer(const std::shared_ptr<znet::PeerSession>& session) {
 	if (!session || !session->IsAlive() || session->connection_type() != znet::ConnectionType::ZDT) return false;
 	std::weak_ptr<znet::PeerSession> weak = session;
-	return addPeer(session->id(), [weak](const std::shared_ptr<znet::Packet>& packet, const znet::SendOptions& options) {
+	return addPeer(session->id(), [weak](const std::shared_ptr<znet::Packet>& packet, const SendOptions& options) {
 		auto locked = weak.lock();
-		return locked && locked->IsAlive() && (locked->SendPacket(packet, options) == znet::Result::Success);
+		return locked && locked->IsAlive() && locked->SendPacket(packet, options);
 	});
 }
 
