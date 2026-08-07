@@ -22,11 +22,11 @@ public:
 protected:
 	void broadcastState(uint32_t netid, float x, float y, float z, float yaw, uint8_t team) override;
 
-private:
+protected:
 	void broadcast(const std::shared_ptr<znet::Packet>& packet, znet::PeerSession* exclude = nullptr);
 
-	bool onPeerConnected(znet::ServerClientConnectedEvent& e);
-	bool onPeerDisconnected(znet::ServerClientDisconnectedEvent& e);
+	bool onPeerConnected(znet::IncomingClientConnectedEvent& e);
+	bool onPeerDisconnected(znet::IncomingClientDisconnectedEvent& e);
 
 	std::string bindip;
 	uint16_t port;
