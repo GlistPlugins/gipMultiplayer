@@ -22,7 +22,7 @@
 class gTeamVoiceServer {
 public:
 	using ConnectionId = std::uint64_t;
-	using SendCallback = std::function<bool(const std::shared_ptr<znet::Packet>&, const znet::SendOptions&)>;
+	using SendCallback = std::function<bool(const std::shared_ptr<znet::Packet>&, const SendOptions&)>;
 
 	struct Config {
 		std::size_t maxconnections = 64;
