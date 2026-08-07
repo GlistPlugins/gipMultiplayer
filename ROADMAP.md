@@ -16,70 +16,52 @@ This document outlines the planned development direction for gipMultiplayer. Ite
 
 ## 🔴 High Priority — Must Do Next
 
-### 1. Vendor znet locally (`libs/znet/`, `libs/zstd/`)
-**Why:** Professor requested to stop FetchContent at configure time. External dependency updates break our build unexpectedly.
-**Approach:**
-- Copy znet source (pinned commit) to `libs/znet/`
-- Copy zstd source (pinned commit `48c0ed7`) to `libs/zstd/`
-- Replace `external/znet.cmake` with `add_subdirectory` based version
-- Keep OpenSSL handling (Windows/Android) and GCC 15+ workaround
-- Remove all `FetchContent` calls from the plugin
-- Keep `FETCHCONTENT_SOURCE_DIR_ZNET` override for local development
-
-**Acceptance:**
-- `cmake -S . -B build` works without internet on first run
-- Release/Debug builds pass
-- Android build passes
-- Example app runs end-to-end
-
----
-
-## 🟠 Medium Priority — Stability & Platform Support
-
-### 2. CI/CD Pipeline (GitHub Actions)
+### 1. CI/CD Pipeline (GitHub Actions)
+**Why:** Catch regressions early; verify builds on every PR.
+**Scope:**
 - **Windows** (MSVC + MinGW): build plugin, example app, run voice tests
 - **Linux** (Ubuntu): build plugin, run tests
 - **Android** (NDK): build plugin (optional: run on emulator)
 - Run on every PR and push to `main`
 - Cache dependencies (zstd, opus, OpenSSL)
 
-### 3. Android Platform Integration
+### 2. Android Platform Integration
 - Runtime `RECORD_AUDIO` permission request helper (Java/Kotlin bridge)
 - ProGuard rules for znet/Opus
 - Gradle integration docs for gipMultiplayer
 
-### 4. iOS/macOS Platform Integration
+### 3. iOS/macOS Platform Integration
 - `NSMicrophoneUsageDescription` guidance
 - CocoaPods / Swift Package Manager notes
 - Audio session category setup (playAndRecord, mixWithOthers)
 
 ---
 
-## 🟡 Lower Priority — Voice Quality & UX
+## 🟡 Medium Priority — Voice Quality & UX
 
-### 5. Echo Cancellation (AEC)
+### 4. Echo Cancellation (AEC)
 - Integrate WebRTC AECM (Acoustic Echo Cancellation Mobile)
 - Enable when headphones not detected
 - Configurable: `voice.setEchoCancellation(true)`
 
-### 6. Voice Activity Detection (VAD)
+### 5. Voice Activity Detection (VAD)
 - WebRTC VAD or Opus built-in DTX
 - "Voice activation" mode: transmit only when speaking (no PTT key)
 - Configurable sensitivity
 
-### 7. Adaptive Bitrate / Opus Features
+### 6. Adaptive Bitrate / Opus Features
 - DTX (Discontinuous Transmission) toggle
 - FEC (Forward Error Correction) toggle
 - DRED (Redundant Audio) toggle
 - Dynamic bitrate based on packet loss / RTT
 
-### 6. Jitter Buffer Tuning UI
+### 7. Jitter Buffer Tuning UI
 - Expose `initial_jitter_packets`, `max_jitter_packets` in example
 - Visual jitter / packet loss graph in demo app
 
 ---
 
-## 🟢 Optional — Example & Ecosystem
+## 🟢 Lower Priority — Example & Ecosystem
 
 ### 8. `GlistApp-TeamVoice` Enhancements
 - Lobby / room list (via Master Server)
@@ -87,13 +69,7 @@ This document outlines the planned development direction for gipMultiplayer. Ite
 - Text chat overlay (demo)
 - Settings screen: mic gain, output device, push-to-talk key bind
 
-### 9. gipZnet Plugin (Alternative to Vendoring)
-If team prefers separate plugin:
-- Create `glistplugins/gipZnet/` with vendored znet+zstd
-- gipMultiplayer depends on `gipZnet`
-- Disable auto-update in gipZnet (pinned commit)
-
-### 10. Documentation Site
+### 9. Documentation Site
 - MkDocs / GitHub Pages for:
   - Getting started
   - API reference (Doxygen)
@@ -102,19 +78,29 @@ If team prefers separate plugin:
 
 ---
 
+## ℹ️ Note on znet Dependency
+
+**Current approach (working well):** znet and zstd are fetched via `FetchContent` at configure time, pinned to specific commits in `external/znet.cmake` and `external/gipopus.cmake`. This provides:
+- Reproducible builds (exact commit pinned)
+- No vendor directory maintenance
+- Easy updates by bumping the pinned commit
+- Override via `FETCHCONTENT_SOURCE_DIR_ZNET` for local development
+
+Professor confirmed this approach is preferred — no need to vendor znet locally in `libs/`.
+
+---
+
 ## 📋 Tracking
 
 | Item | Status | Target | Owner |
 |------|--------|--------|-------|
-| Vendor znet locally | 🔴 Planned | Next sprint | — |
-| CI/CD Pipeline | 🟠 Planned | After vendoring | — |
-| Android permission helper | 🟠 Planned | After CI | — |
-| iOS platform guide | 🟠 Planned | After CI | — |
+| CI/CD Pipeline | 🔴 Planned | Next sprint | — |
+| Android permission helper | 🔴 Planned | After CI | — |
+| iOS platform guide | 🔴 Planned | After CI | — |
 | Echo Cancellation (AEC) | 🟡 Backlog | — | — |
 | Voice Activity Detection | 🟡 Backlog | — | — |
 | Adaptive Opus features | 🟡 Backlog | — | — |
 | Example enhancements | 🟢 Backlog | — | — |
-| gipZnet plugin (alt) | 🟢 Backlog | — | — |
 | Documentation site | 🟢 Backlog | — | — |
 
 ---
