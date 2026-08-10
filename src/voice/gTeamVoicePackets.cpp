@@ -291,22 +291,6 @@ void gRegisterTeamVoicePackets(znet::Codec& codec, gTeamVoicePacketErrorCallback
 	codec.Add(G_TEAM_VOICE_DOWNLINK_PACKET_ID, std::make_unique<gTeamVoiceDownlinkSerializer>(std::move(errorcallback)));
 }
 
-SendOptions gGetTeamVoiceControlSendOptions() {
-    SendOptions options;
-    options.Set<ReliableKey>(true);
-    options.Set<OrderedKey>(true);
-    options.Set<ChannelKey>(G_TEAM_VOICE_CONTROL_CHANNEL);
-    return options;
-}
-
-SendOptions gGetTeamVoiceDataSendOptions() {
-    SendOptions options;
-    options.Set<ReliableKey>(false);
-    options.Set<OrderedKey>(false);
-    options.Set<ChannelKey>(G_TEAM_VOICE_DATA_CHANNEL);
-    return options;
-}
-
 bool gIsTeamVoiceSequenceNewer(std::uint32_t sequence, std::uint32_t reference) {
 	std::uint32_t distance = sequence - reference;
 	return distance != 0 && distance < 0x80000000U;

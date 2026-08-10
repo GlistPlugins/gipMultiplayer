@@ -103,9 +103,9 @@ bool gTeamVoiceServer::addPeer(ConnectionId connectionid, SendCallback sendcallb
 bool gTeamVoiceServer::addPeer(const std::shared_ptr<znet::PeerSession>& session) {
 	if (!session || !session->IsAlive() || session->connection_type() != znet::ConnectionType::ZDT) return false;
 	std::weak_ptr<znet::PeerSession> weak = session;
-	return addPeer(session->id(), [weak](const std::shared_ptr<znet::Packet>& packet, const SendOptions& options) {
+	return addPeer(session->id(), [weak](const std::shared_ptr<znet::Packet>& packet, const znet::SendOptions& options) {
 		auto locked = weak.lock();
-		return locked && locked->IsAlive() && locked->SendPacket(packet, options);
+		return locked && locked->IsAlive() && locked->SendPacket(packet, options) == znet::Result::Success;
 	});
 }
 
@@ -149,7 +149,7 @@ bool gTeamVoiceServer::setPeerState(ConnectionId connectionid, const PeerState& 
 	control->sessionid = newstate.sessionid;
 	control->membershipgeneration = generation;
 	control->playerid = newstate.playerid;
-	if (!send(control, gGetTeamVoiceControlSendOptions())) {
+	if (!send(control, G_TEAM_VOICE_CONTROL_SEND_OPTIONS)) {
 		state->sendfailures.fetch_add(1, std::memory_order_relaxed);
 		return false;
 	}
@@ -188,7 +188,7 @@ bool gTeamVoiceServer::clearPeerState(ConnectionId connectionid) {
 	}
 	auto control = std::make_shared<gTeamVoiceSessionPacket>();
 	control->enabled = false;
-	if (!send(control, gGetTeamVoiceControlSendOptions())) {
+	if (!send(control, G_TEAM_VOICE_CONTROL_SEND_OPTIONS)) {
 		state->sendfailures.fetch_add(1, std::memory_order_relaxed);
 		return false;
 	}
@@ -247,7 +247,7 @@ void gTeamVoiceServer::handleVoicePacket(ConnectionId senderconnectionid, const 
 		relay->sequence = packet.sequence;
 		relay->sampleposition = packet.sampleposition;
 		relay->payload = packet.payload;
-		if (recipient.send(relay, gGetTeamVoiceDataSendOptions())) {
+		if (recipient.send(relay, G_TEAM_VOICE_DATA_SEND_OPTIONS)) {
 			state->relayedpackets.fetch_add(1, std::memory_order_relaxed);
 			state->relayedbytes.fetch_add(relay->payload.size(), std::memory_order_relaxed);
 		} else {
