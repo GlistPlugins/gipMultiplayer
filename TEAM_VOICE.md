@@ -1,8 +1,8 @@
 # Team Voice Integration
 
-New here? Start with [TUTORIAL.md](TUTORIAL.md) for a guided setup and first run.
-
 `gTeamVoice` and `gTeamVoiceServer` implement server-authoritative team voice over znet's encrypted ZDT transport. Audio is 48 kHz mono signed 16-bit PCM, encoded as 20 ms Opus frames at 24 kbit/s.
+
+For a guided first run, see [TUTORIAL.md](TUTORIAL.md).
 
 ## Data Flow
 
@@ -143,9 +143,9 @@ void update() {
 }
 ```
 
-`updateNetwork()` only sends over ZDT. It returns the number of packets accepted by the session.
+`updateNetwork()` returns the number of packets the session accepted.
 
-Use push-to-talk by default:
+Push-to-talk:
 
 ```cpp
 void onPushToTalkPressed() {
@@ -157,9 +157,9 @@ void onPushToTalkReleased() {
 }
 ```
 
-Transmission starts disabled. `setEnabled(false)`, `stopTransmitting()`, `setLocalMuted(true)`, session changes, and shutdown invalidate queued uplinks so stale media is not sent afterward.
+Transmission starts disabled. `setEnabled(false)`, `stopTransmitting()`, `setLocalMuted(true)`, session changes and shutdown invalidate queued uplinks, so stale media is not sent afterward.
 
-Push-to-talk controls transmission only. A player does not press a key to hear teammates; authorized downlinks are decoded and played continuously while voice is enabled.
+Push-to-talk controls transmission only. Receiving needs no key: authorized downlinks are decoded and played continuously while voice is enabled.
 
 On network disconnect, call `resetSession()`. The next server control packet establishes the new session:
 
@@ -193,7 +193,7 @@ voice.setSpeakerVolume(playerid, 0.75f); // Clamped to 0.0 through 2.0.
 - Inactive speaker decoders are removed after two seconds.
 - Up to 32 speakers are active by default.
 
-Unreliable voice can legitimately lose packets. Application health checks should monitor successful decode and isolation, not require every sent packet to arrive.
+Voice runs unreliable, so packet loss is normal. Health checks should look at whether audio decodes and stays isolated to the right team, not at whether every sent packet arrived.
 
 ## Diagnostics
 
@@ -203,31 +203,13 @@ Server counters are available through `gTeamVoiceServer::getStats()` and include
 
 ## Platform Permissions
 
-Windows and desktop Linux/macOS builds use the default capture and playback devices. Mobile applications must also configure platform microphone permission:
+Windows and desktop Linux/macOS builds use the default capture and playback devices. Mobile applications need platform microphone permission before `initialize()`:
 
-- Android: declare `RECORD_AUDIO` and request it at runtime before `initialize()`.
-- Apple platforms: provide the microphone usage description required by the target platform before `initialize()`.
+- Android: declare `RECORD_AUDIO` and request it at runtime.
+- Apple platforms: provide the microphone usage description the target platform requires.
 
 Use headphones during development to prevent acoustic feedback.
 
-## Current GlistApp Example
+## Example and Tests
 
-[`examples/GlistApp-TeamVoice`](examples/GlistApp-TeamVoice) is built from the current clean GlistApp template and uses one application-defined `gCanvas`. It includes host, client, local Opus loopback, voice diagnostics, and push-to-talk flows without depending on the legacy multiplayer example.
-
-On Windows:
-
-```powershell
-& .\examples\GlistApp-TeamVoice\run-team-voice.ps1
-```
-
-## Standalone Tests
-
-The test target does not require a GlistEngine application:
-
-```bash
-cmake -S tests -B build/voice-tests -DCMAKE_BUILD_TYPE=Release
-cmake --build build/voice-tests
-ctest --test-dir build/voice-tests --output-on-failure
-```
-
-It exercises packet bounds, authoritative routing and permissions, rate limits, Opus encode/decode, jitter/reordering, duplicate/late packets, PLC, queue overflow, lifecycle barriers, stream restart, and encrypted four-client ZDT team isolation.
+[`examples/GlistApp-TeamVoice`](examples/GlistApp-TeamVoice) covers host, client, local Opus loopback, diagnostics and push-to-talk in one `gCanvas`. See its [README](examples/GlistApp-TeamVoice/README.md) for the controls and [README.md](README.md) for the standalone test suite.
