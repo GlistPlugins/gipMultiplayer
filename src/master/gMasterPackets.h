@@ -18,6 +18,7 @@ struct gServerInfo {
     std::string name;
     uint32_t currentPlayers;
     uint32_t maxPlayers;
+    int matchState;
     float lastHeartbeat = 0.0f;
 };
 
@@ -28,6 +29,7 @@ public:
     std::string name;
     uint32_t currentPlayers;
     uint32_t maxPlayers;
+    int matchState;
 };
 
 class gMasterRegisterSerializer : public znet::PacketSerializer<gMasterRegisterPacket> {
@@ -37,6 +39,7 @@ public:
         b->WriteString(p->name);
         b->WriteInt(p->currentPlayers);
         b->WriteInt(p->maxPlayers);
+        b->WriteInt(p->matchState);
         return b;
     }
     std::shared_ptr<gMasterRegisterPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
@@ -45,6 +48,7 @@ public:
         p->name = b->ReadString();
         p->currentPlayers = b->ReadInt<uint32_t>();
         p->maxPlayers = b->ReadInt<uint32_t>();
+        p->matchState = b->ReadInt<int>();
         return p;
     }
 };
@@ -71,15 +75,19 @@ public:
 class gMasterGetListPacket : public znet::Packet {
 public:
     gMasterGetListPacket() : Packet(PACKET_GIP_MASTER_GET_LIST) {}
+    int matchStateFilter = -1;
 };
 
 class gMasterGetListSerializer : public znet::PacketSerializer<gMasterGetListPacket> {
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterGetListPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteInt<int>(p->matchStateFilter);
         return b;
     }
     std::shared_ptr<gMasterGetListPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
-        return std::make_shared<gMasterGetListPacket>();
+        auto p = std::make_shared<gMasterGetListPacket>();
+        p->matchStateFilter = b->ReadInt<int>();
+        return p;
     }
 };
 
@@ -98,6 +106,7 @@ public:
             b->WriteString(s.name);
             b->WriteInt(s.currentPlayers);
             b->WriteInt(s.maxPlayers);
+            b->WriteInt(s.matchState);
         }
         return b;
     }
@@ -110,6 +119,7 @@ public:
             s.name = b->ReadString();
             s.currentPlayers = b->ReadInt<uint32_t>();
             s.maxPlayers = b->ReadInt<uint32_t>();
+            s.matchState = b->ReadInt<int>();
             p->servers.push_back(s);
         }
         return p;

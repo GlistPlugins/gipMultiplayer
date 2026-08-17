@@ -25,15 +25,16 @@ public:
                 s.name = p->name;
                 s.currentPlayers = p->currentPlayers;
                 s.maxPlayers = p->maxPlayers;
+                s.matchState = p->matchState;
                 s.lastHeartbeat = 0.0f;
                 found = true;
                 break;
             }
         }
         if (!found) {
-            serverList.push_back({p->ip, p->name, p->currentPlayers, p->maxPlayers, 0.0f});
+            serverList.push_back({p->ip, p->name, p->currentPlayers, p->maxPlayers, p->matchState, 0.0f});
         }
-        std::cout << "[MasterServer] Registered server: " << p->name << " (" << p->ip << ")" << std::endl;
+        std::cout << "[MasterServer] Registered server: " << p->name << " (" << p->ip << ") State: " << p->matchState << std::endl;
     }
 
     void OnPacket(std::shared_ptr<gMasterHeartbeatPacket> p) {
@@ -49,7 +50,11 @@ public:
     void OnPacket(std::shared_ptr<gMasterGetListPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
         auto res = std::make_shared<gMasterSendListPacket>();
-        res->servers = serverList;
+        for (const auto& s : serverList) {
+            if (p->matchStateFilter == -1 || s.matchState == p->matchStateFilter) {
+                res->servers.push_back(s);
+            }
+        }
         session->SendPacket(res);
     }
 

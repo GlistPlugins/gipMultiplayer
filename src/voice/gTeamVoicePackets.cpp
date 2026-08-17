@@ -316,3 +316,12 @@ const char* gGetTeamVoicePacketErrorString(gTeamVoicePacketError error) {
 	default: return "unknown packet error";
 	}
 }
+
+znet::SendOptions gGetTeamVoiceControlSendOptions() {
+	return znet::SendOptions().Reliable(true).Ordered(true).Channel(G_TEAM_VOICE_CONTROL_CHANNEL);
+}
+
+znet::SendOptions gGetTeamVoiceDataSendOptions() {
+	return znet::SendOptions().Reliable(false).Ordered(false).Channel(G_TEAM_VOICE_DATA_CHANNEL);
+}
+
