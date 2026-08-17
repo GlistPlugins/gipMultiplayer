@@ -224,7 +224,7 @@ std::size_t gTeamVoice::updateNetwork(znet::PeerSession& session) {
 	gTeamVoiceUplinkPacket packet;
 	while (state->processor.popOutgoingPacket(packet)) {
 		auto outgoing = std::make_shared<gTeamVoiceUplinkPacket>(packet);
-		if (session.SendPacket(outgoing, gGetTeamVoiceDataSendOptions()) == znet::Result::Success) {
+		if (session.SendPacket(outgoing, G_TEAM_VOICE_DATA_SEND_OPTIONS) == znet::Result::Success) {
 			state->sentpackets.fetch_add(1, std::memory_order_relaxed);
 			state->sentbytes.fetch_add(packet.payload.size(), std::memory_order_relaxed);
 			sent++;

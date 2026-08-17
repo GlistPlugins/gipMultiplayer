@@ -83,6 +83,10 @@ if(NOT _znet_saved_build_type AND CMAKE_BUILD_TYPE)
 endif()
 unset(_znet_saved_build_type)
 
+if(TARGET libzstd_static)
+	set_target_properties(libzstd_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 ##### ZNET #####
 # GIT_SUBMODULES "" skips znet's own vendor/zstd submodule, which the fetch
 # above replaces. CMP0097 is what makes an empty value mean "no submodules"
@@ -109,4 +113,5 @@ endif()
 
 set_target_properties(znet PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+		POSITION_INDEPENDENT_CODE ON
 )
