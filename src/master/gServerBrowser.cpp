@@ -19,12 +19,12 @@ void gServerBrowser::setOnServersReceived(std::function<void(const std::vector<g
     onServersReceived = callback;
 }
 
-void gServerBrowser::refreshServers(const std::string& masterIp, uint16_t masterPort) {
+void gServerBrowser::refreshServers(const std::string& masterIp, uint16_t masterPort, int matchStateFilter) {
     masterQueryClient = std::make_shared<znet::Client>(znet::ClientConfig{masterIp, masterPort, std::chrono::seconds(2), znet::ConnectionType::TCP});
     
-    masterQueryClient->SetEventCallback([this](znet::Event& ev) {
+    masterQueryClient->SetEventCallback([this, matchStateFilter](znet::Event& ev) {
         znet::EventDispatcher d{ev};
-        d.Dispatch<znet::ClientConnectedToServerEvent>([this](znet::ClientConnectedToServerEvent& e) {
+        d.Dispatch<znet::ClientConnectedToServerEvent>([this, matchStateFilter](znet::ClientConnectedToServerEvent& e) {
             auto sess = e.session();
             
             auto codec = std::make_shared<znet::Codec>();
@@ -34,7 +34,9 @@ void gServerBrowser::refreshServers(const std::string& masterIp, uint16_t master
             sess->SetCodec(codec);
             sess->SetHandler(std::make_shared<gBrowserPacketHandler>(onServersReceived));
             
-            sess->SendPacket(std::make_shared<gMasterGetListPacket>());
+            auto req = std::make_shared<gMasterGetListPacket>();
+            req->matchStateFilter = matchStateFilter;
+            sess->SendPacket(req);
             return false;
         });
     });
