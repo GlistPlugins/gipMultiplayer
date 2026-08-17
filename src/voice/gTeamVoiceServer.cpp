@@ -149,7 +149,7 @@ bool gTeamVoiceServer::setPeerState(ConnectionId connectionid, const PeerState& 
 	control->sessionid = newstate.sessionid;
 	control->membershipgeneration = generation;
 	control->playerid = newstate.playerid;
-	if (!send(control, G_TEAM_VOICE_CONTROL_SEND_OPTIONS)) {
+	if (!send(control, gGetTeamVoiceControlSendOptions())) {
 		state->sendfailures.fetch_add(1, std::memory_order_relaxed);
 		return false;
 	}
@@ -188,7 +188,7 @@ bool gTeamVoiceServer::clearPeerState(ConnectionId connectionid) {
 	}
 	auto control = std::make_shared<gTeamVoiceSessionPacket>();
 	control->enabled = false;
-	if (!send(control, G_TEAM_VOICE_CONTROL_SEND_OPTIONS)) {
+	if (!send(control, gGetTeamVoiceControlSendOptions())) {
 		state->sendfailures.fetch_add(1, std::memory_order_relaxed);
 		return false;
 	}
@@ -247,7 +247,7 @@ void gTeamVoiceServer::handleVoicePacket(ConnectionId senderconnectionid, const 
 		relay->sequence = packet.sequence;
 		relay->sampleposition = packet.sampleposition;
 		relay->payload = packet.payload;
-		if (recipient.send(relay, G_TEAM_VOICE_DATA_SEND_OPTIONS)) {
+		if (recipient.send(relay, gGetTeamVoiceDataSendOptions())) {
 			state->relayedpackets.fetch_add(1, std::memory_order_relaxed);
 			state->relayedbytes.fetch_add(relay->payload.size(), std::memory_order_relaxed);
 		} else {
