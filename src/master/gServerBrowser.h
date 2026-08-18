@@ -11,7 +11,7 @@ public:
     gServerBrowser();
     
     // Connects to master server and asks for a list
-    void refreshServers(const std::string& masterIp, uint16_t masterPort);
+    void refreshServers(const std::string& masterIp, uint16_t masterPort, int matchStateFilter = -1);
     
     // Set callback triggered when the list arrives
     void setOnServersReceived(std::function<void(const std::vector<gServerInfo>&)> callback);
