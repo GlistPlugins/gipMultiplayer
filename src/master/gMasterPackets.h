@@ -27,6 +27,7 @@ enum MasterPacketId {
 
 struct gServerInfo {
     std::string ip;
+    std::vector<std::string> peerCandidates;
     std::string name;
     uint32_t currentPlayers;
     uint32_t maxPlayers;
@@ -207,23 +208,26 @@ public:
 class gMasterPunchExecutePacket : public znet::Packet {
 public:
     gMasterPunchExecutePacket() : Packet(PACKET_GIP_MASTER_PUNCH_EXEC) {}
-    std::string remoteIp;
-    uint16_t remotePort;
+    std::vector<std::string> peerCandidates;
     bool isHost;
 };
 
 class gMasterPunchExecuteSerializer : public znet::PacketSerializer<gMasterPunchExecutePacket> {
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterPunchExecutePacket> p, std::shared_ptr<znet::Buffer> b) override {
-        b->WriteString(p->remoteIp);
-        b->WriteInt<uint16_t>(p->remotePort);
+        b->WriteInt<uint32_t>(p->peerCandidates.size());
+        for (const auto& candidate : p->peerCandidates) {
+            b->WriteString(candidate);
+        }
         b->WriteInt<int>(p->isHost ? 1 : 0);
         return b;
     }
     std::shared_ptr<gMasterPunchExecutePacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterPunchExecutePacket>();
-        p->remoteIp = b->ReadString();
-        p->remotePort = b->ReadInt<uint16_t>();
+        uint32_t count = b->ReadInt<uint32_t>();
+        for (uint32_t i = 0; i < count; i++) {
+            p->peerCandidates.push_back(b->ReadString());
+        }
         p->isHost = b->ReadInt<int>() == 1;
         return p;
     }
