@@ -57,6 +57,7 @@ public:
                 s.isPrivate = p->isPrivate;
                 s.hasPassword = p->hasPassword;
                 s.isDedicated = p->isDedicated;
+                s.useP2P = p->useP2P;
                 s.hostSession = weakSession;
                 s.lastHeartbeat = 0.0f;
                 s.peerCandidates.clear();
@@ -79,6 +80,7 @@ public:
             newServer.isPrivate = p->isPrivate;
             newServer.hasPassword = p->hasPassword;
             newServer.isDedicated = p->isDedicated;
+            newServer.useP2P = p->useP2P;
             newServer.roomCode = assignedRoomCode;
             newServer.hostSession = weakSession;
             newServer.peerCandidates.clear();
@@ -116,9 +118,22 @@ public:
     void OnPacket(std::shared_ptr<gMasterGetListPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
         auto res = std::make_shared<gMasterSendListPacket>();
+
+        std::string clientPublicIp = session->remote_address()->readable();
+        size_t cColon = clientPublicIp.find(':');
+        if (cColon != std::string::npos) clientPublicIp = clientPublicIp.substr(0, cColon);
+
         for (const auto& s : serverList) {
             if (!s.isPrivate && (p->matchStateFilter == -1 || s.matchState == p->matchStateFilter)) {
-                res->servers.push_back(s);
+                gServerInfo copy = s;
+                std::string serverPublicIp = s.ip;
+                size_t sColon = serverPublicIp.find(':');
+                if (sColon != std::string::npos) serverPublicIp = serverPublicIp.substr(0, sColon);
+
+                if (s.isDedicated && serverPublicIp == clientPublicIp && s.peerCandidates.size() > 1) {
+                    copy.ip = s.peerCandidates[1];
+                }
+                res->servers.push_back(copy);
             }
         }
         session->SendPacket(res);

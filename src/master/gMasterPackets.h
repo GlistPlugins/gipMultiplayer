@@ -37,6 +37,7 @@ struct gServerInfo {
     bool isPrivate = false;
     bool hasPassword = false;
     bool isDedicated = false;
+    bool useP2P = false;
     std::string roomCode = "";
     // Weak, so a host that drops leaves an expired handle rather than a
     // dangling pointer. The entry itself lingers until the heartbeat prunes it.
@@ -54,6 +55,7 @@ public:
     bool isPrivate = false;
     bool hasPassword = false;
     bool isDedicated = false;
+    bool useP2P = false;
 };
 
 class gMasterRegisterSerializer : public znet::PacketSerializer<gMasterRegisterPacket> {
@@ -67,6 +69,7 @@ public:
         b->WriteInt(p->isPrivate ? 1 : 0);
         b->WriteInt(p->hasPassword ? 1 : 0);
         b->WriteInt(p->isDedicated ? 1 : 0);
+        b->WriteInt(p->useP2P ? 1 : 0);
         return b;
     }
     std::shared_ptr<gMasterRegisterPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
@@ -79,6 +82,7 @@ public:
         p->isPrivate = b->ReadInt<int>() != 0;
         p->hasPassword = b->ReadInt<int>() != 0;
         p->isDedicated = b->ReadInt<int>() != 0;
+        p->useP2P = b->ReadInt<int>() != 0;
         return p;
     }
 };
@@ -140,6 +144,7 @@ public:
             b->WriteInt(s.isPrivate ? 1 : 0);
             b->WriteInt(s.hasPassword ? 1 : 0);
             b->WriteInt(s.isDedicated ? 1 : 0);
+            b->WriteInt(s.useP2P ? 1 : 0);
             b->WriteString(s.roomCode);
         }
         return b;
@@ -157,6 +162,7 @@ public:
             s.isPrivate = b->ReadInt<int>() != 0;
             s.hasPassword = b->ReadInt<int>() != 0;
             s.isDedicated = b->ReadInt<int>() != 0;
+            s.useP2P = b->ReadInt<int>() != 0;
             s.roomCode = b->ReadString();
             p->servers.push_back(s);
         }
