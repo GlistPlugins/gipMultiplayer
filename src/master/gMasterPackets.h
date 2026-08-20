@@ -3,6 +3,7 @@
 #include "znet/packet_serializer.h"
 #include "znet/buffer.h"
 #include "znet/peer_session.h"
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -37,7 +38,9 @@ struct gServerInfo {
     bool hasPassword = false;
     bool isDedicated = false;
     std::string roomCode = "";
-    znet::PeerSession* hostSession = nullptr;
+    // Weak, so a host that drops leaves an expired handle rather than a
+    // dangling pointer. The entry itself lingers until the heartbeat prunes it.
+    std::weak_ptr<znet::PeerSession> hostSession;
 };
 
 class gMasterRegisterPacket : public znet::Packet {
