@@ -128,7 +128,7 @@ public:
                 size_t sColon = serverPublicIp.find(':');
                 if (sColon != std::string::npos) serverPublicIp = serverPublicIp.substr(0, sColon);
 
-                if (serverPublicIp == clientPublicIp && s.peerCandidates.size() > 1) {
+                if (s.isDedicated && serverPublicIp == clientPublicIp && s.peerCandidates.size() > 1) {
                     copy.ip = s.peerCandidates[1];
                 }
                 res->servers.push_back(copy);
