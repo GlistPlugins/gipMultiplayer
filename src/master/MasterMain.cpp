@@ -29,14 +29,14 @@ std::string GenerateRoomCode() {
 
 class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket, gMasterUserLoginPacket, gMasterUserRegisterPacket> {
 public:
-    gMasterPacketHandler(znet::PeerSession* s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db) 
-        : session(s), serverList(sl), listMutex(m), db(db) {}
+    gMasterPacketHandler(const std::shared_ptr<znet::PeerSession>& s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db)
+        : session(s.get()), weakSession(s), serverList(sl), listMutex(m), db(db) {}
 
     void OnPacket(std::shared_ptr<gMasterRegisterPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
         bool found = false;
         std::string assignedRoomCode = "";
-        
+
         // Extract public IP from session
         std::string remoteIp = session->remote_address()->readable();
         size_t rColon = remoteIp.find(':');
@@ -47,7 +47,7 @@ public:
         size_t colon = p->ip.find(':');
         if (colon != std::string::npos) portStr = p->ip.substr(colon + 1);
         std::string actualIp = remoteIp + ":" + portStr;
-        
+
         for (auto& s : serverList) {
             if (s.ip == actualIp) {
                 s.name = p->name;
@@ -57,7 +57,7 @@ public:
                 s.isPrivate = p->isPrivate;
                 s.hasPassword = p->hasPassword;
                 s.isDedicated = p->isDedicated;
-                s.hostSession = session;
+                s.hostSession = weakSession;
                 s.lastHeartbeat = 0.0f;
                 s.peerCandidates.clear();
                 s.peerCandidates.push_back(actualIp);
@@ -80,7 +80,7 @@ public:
             newServer.hasPassword = p->hasPassword;
             newServer.isDedicated = p->isDedicated;
             newServer.roomCode = assignedRoomCode;
-            newServer.hostSession = session;
+            newServer.hostSession = weakSession;
             newServer.peerCandidates.clear();
             newServer.peerCandidates.push_back(actualIp);
             newServer.peerCandidates.push_back(p->ip);
@@ -95,7 +95,7 @@ public:
 
     void OnPacket(std::shared_ptr<gMasterHeartbeatPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
-        
+
         std::string remoteIp = session->remote_address()->readable();
         size_t rColon = remoteIp.find(':');
         if (rColon != std::string::npos) remoteIp = remoteIp.substr(0, rColon);
@@ -104,7 +104,7 @@ public:
         size_t colon = p->ip.find(':');
         if (colon != std::string::npos) portStr = p->ip.substr(colon + 1);
         std::string actualIp = remoteIp + ":" + portStr;
-        
+
         for (auto& s : serverList) {
             if (s.ip == actualIp) {
                 s.lastHeartbeat = 0.0f;
@@ -127,7 +127,7 @@ public:
     void OnPacket(std::shared_ptr<gMasterPunchRequestPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
         gServerInfo* targetServer = nullptr;
-        
+
         for (auto& s : serverList) {
             if (s.roomCode == p->targetIdentifier || s.ip == p->targetIdentifier) {
                 targetServer = &s;
@@ -135,19 +135,24 @@ public:
             }
         }
 
-        if (targetServer && targetServer->hostSession) {
+        // lock() fails when the host has gone away since it registered, which is
+        // the window the heartbeat prune has not caught up with yet.
+        std::shared_ptr<znet::PeerSession> hostSession;
+        if (targetServer) hostSession = targetServer->hostSession.lock();
+
+        if (hostSession) {
             std::string clientPublicIp = session->remote_address()->readable();
             size_t cColon = clientPublicIp.find(':');
             if (cColon != std::string::npos) clientPublicIp = clientPublicIp.substr(0, cColon);
-            
-            std::cout << "[MasterServer] Broker Handshake: Client(" << clientPublicIp << ":" << p->clientGamePort 
+
+            std::cout << "[MasterServer] Broker Handshake: Client(" << clientPublicIp << ":" << p->clientGamePort
                       << ") punching Host(" << targetServer->ip << ")" << std::endl;
 
             auto execHost = std::make_shared<gMasterPunchExecutePacket>();
             execHost->peerCandidates.push_back(clientPublicIp + ":" + std::to_string(p->clientGamePort));
             if (!p->clientIp.empty()) execHost->peerCandidates.push_back(p->clientIp);
             execHost->isHost = true;
-            targetServer->hostSession->SendPacket(execHost);
+            hostSession->SendPacket(execHost);
 
             auto execClient = std::make_shared<gMasterPunchExecutePacket>();
             execClient->peerCandidates = targetServer->peerCandidates;
@@ -182,18 +187,18 @@ public:
 
     void OnPacket(std::shared_ptr<gMasterUserRegisterPacket> p) {
         auto res = std::make_shared<gMasterUserRegisterResPacket>();
-        
+
         if (p->username.empty() || p->email.empty() || p->password.empty()) {
             res->success = false;
             res->message = "All fields are required.";
             session->SendPacket(res);
             return;
         }
-        
+
         std::string sql = "INSERT INTO USERS (username, email, password) VALUES ('" + p->username + "', '" + p->email + "', '" + p->password + "');";
         char* errMsg = 0;
         int rc = sqlite3_exec(db, sql.c_str(), 0, 0, &errMsg);
-        
+
         if (rc == SQLITE_OK) {
             res->success = true;
             res->message = "Registration successful!";
@@ -214,19 +219,19 @@ public:
         }
         session->SendPacket(res);
     }
-    
+
     void OnPacket(std::shared_ptr<gMasterUserLoginPacket> p) {
         auto res = std::make_shared<gMasterUserLoginResPacket>();
-        
+
         std::string sql = "SELECT username, password FROM USERS WHERE email = '" + p->email + "';";
         sqlite3_stmt* stmt;
         int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0);
-        
+
         if (rc == SQLITE_OK) {
             if (sqlite3_step(stmt) == SQLITE_ROW) {
                 std::string dbUser = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
                 std::string dbPass = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-                
+
                 if (dbPass == p->password) {
                     res->success = true;
                     res->message = "Login successful!";
@@ -249,7 +254,8 @@ public:
     }
 
 private:
-    znet::PeerSession* session;
+    znet::PeerSession* session;  // owned by the session that owns this handler
+    std::weak_ptr<znet::PeerSession> weakSession;
     std::vector<gServerInfo>& serverList;
     std::mutex& listMutex;
     sqlite3* db;
@@ -268,13 +274,13 @@ static std::shared_ptr<znet::Codec> makeMasterCodec() {
     codec->Add(PACKET_GIP_MASTER_PUNCH_EXEC, std::make_unique<gMasterPunchExecuteSerializer>());
     codec->Add(PACKET_GIP_MASTER_QUERY_ROOM, std::make_unique<gMasterQueryRoomSerializer>());
     codec->Add(PACKET_GIP_MASTER_QUERY_ROOM_RES, std::make_unique<gMasterQueryRoomResSerializer>());
-    
+
     // Auth
     codec->Add(PACKET_GIP_MASTER_USER_LOGIN, std::make_unique<gMasterUserLoginSerializer>());
     codec->Add(PACKET_GIP_MASTER_USER_LOGIN_RES, std::make_unique<gMasterUserLoginResSerializer>());
     codec->Add(PACKET_GIP_MASTER_USER_REGISTER, std::make_unique<gMasterUserRegisterSerializer>());
     codec->Add(PACKET_GIP_MASTER_USER_REGISTER_RES, std::make_unique<gMasterUserRegisterResSerializer>());
-    
+
     return codec;
 }
 
@@ -292,7 +298,7 @@ public:
 
     void setup() override {
         std::cout << "[MasterServer] Starting on port " << port << "..." << std::endl;
-        
+
         // Initialize SQLite Database
         int rc = sqlite3_open("users.db", &db);
         if (rc) {
@@ -312,21 +318,21 @@ public:
                 sqlite3_free(errMsg);
             }
         }
-        
+
         appmanager->setTargetFramerate(60);
-        
+
         server = std::make_unique<znet::Server>(znet::ServerConfig{"0.0.0.0", port, std::chrono::seconds(10), znet::ConnectionType::TCP});
-        
+
         server->SetEventCallback([this](znet::Event& ev) {
             znet::EventDispatcher d{ev};
             d.Dispatch<znet::IncomingClientConnectedEvent>([this](znet::IncomingClientConnectedEvent& e) {
                 auto sess = e.session();
                 sess->SetCodec(makeMasterCodec());
-                sess->SetHandler(std::make_shared<gMasterPacketHandler>(sess.get(), serverList, listMutex, db));
+                sess->SetHandler(std::make_shared<gMasterPacketHandler>(sess, serverList, listMutex, db));
                 return false;
             });
         });
-        
+
         server->Bind();
         server->Listen();
     }
@@ -335,14 +341,20 @@ public:
         std::lock_guard<std::mutex> lk(listMutex);
         for (auto it = serverList.begin(); it != serverList.end(); ) {
             it->lastHeartbeat += 0.016f;
-            if (it->lastHeartbeat > 30.0f) {
+            // A host whose session has gone is unreachable now, so it goes
+            // immediately rather than sitting in the list for the full timeout
+            // and being handed out to clients that cannot punch to it.
+            if (it->hostSession.expired()) {
+                std::cout << "[MasterServer] Host disconnected, removed: " << it->ip << std::endl;
+                it = serverList.erase(it);
+            } else if (it->lastHeartbeat > 30.0f) {
                 std::cout << "[MasterServer] Pruned dead server: " << it->ip << std::endl;
                 it = serverList.erase(it);
             } else {
                 ++it;
             }
         }
-        
+
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
 };
