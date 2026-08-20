@@ -16,7 +16,13 @@ enum MasterPacketId {
     PACKET_GIP_MASTER_PUNCH_REQ = 305,
     PACKET_GIP_MASTER_PUNCH_EXEC = 306,
     PACKET_GIP_MASTER_QUERY_ROOM = 307,
-    PACKET_GIP_MASTER_QUERY_ROOM_RES = 308
+    PACKET_GIP_MASTER_QUERY_ROOM_RES = 308,
+    
+    // User Authentication
+    PACKET_GIP_MASTER_USER_LOGIN = 309,
+    PACKET_GIP_MASTER_USER_LOGIN_RES = 310,
+    PACKET_GIP_MASTER_USER_REGISTER = 311,
+    PACKET_GIP_MASTER_USER_REGISTER_RES = 312
 };
 
 struct gServerInfo {
@@ -282,6 +288,101 @@ public:
             p->isDedicated = b->ReadBool();
             p->ip = b->ReadString();
         }
+        return p;
+    }
+};
+
+// User Auth Packets
+class gMasterUserLoginPacket : public znet::Packet {
+public:
+    gMasterUserLoginPacket() : Packet(PACKET_GIP_MASTER_USER_LOGIN) {}
+    std::string email;
+    std::string password;
+};
+
+class gMasterUserLoginSerializer : public znet::PacketSerializer<gMasterUserLoginPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterUserLoginPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteString(p->email);
+        b->WriteString(p->password);
+        return b;
+    }
+    std::shared_ptr<gMasterUserLoginPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<gMasterUserLoginPacket>();
+        p->email = b->ReadString();
+        p->password = b->ReadString();
+        return p;
+    }
+};
+
+class gMasterUserLoginResPacket : public znet::Packet {
+public:
+    gMasterUserLoginResPacket() : Packet(PACKET_GIP_MASTER_USER_LOGIN_RES) {}
+    bool success;
+    std::string message;
+    std::string username;
+};
+
+class gMasterUserLoginResSerializer : public znet::PacketSerializer<gMasterUserLoginResPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterUserLoginResPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteBool(p->success);
+        b->WriteString(p->message);
+        b->WriteString(p->username);
+        return b;
+    }
+    std::shared_ptr<gMasterUserLoginResPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<gMasterUserLoginResPacket>();
+        p->success = b->ReadBool();
+        p->message = b->ReadString();
+        p->username = b->ReadString();
+        return p;
+    }
+};
+
+class gMasterUserRegisterPacket : public znet::Packet {
+public:
+    gMasterUserRegisterPacket() : Packet(PACKET_GIP_MASTER_USER_REGISTER) {}
+    std::string username;
+    std::string email;
+    std::string password;
+};
+
+class gMasterUserRegisterSerializer : public znet::PacketSerializer<gMasterUserRegisterPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterUserRegisterPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteString(p->username);
+        b->WriteString(p->email);
+        b->WriteString(p->password);
+        return b;
+    }
+    std::shared_ptr<gMasterUserRegisterPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<gMasterUserRegisterPacket>();
+        p->username = b->ReadString();
+        p->email = b->ReadString();
+        p->password = b->ReadString();
+        return p;
+    }
+};
+
+class gMasterUserRegisterResPacket : public znet::Packet {
+public:
+    gMasterUserRegisterResPacket() : Packet(PACKET_GIP_MASTER_USER_REGISTER_RES) {}
+    bool success;
+    std::string message;
+};
+
+class gMasterUserRegisterResSerializer : public znet::PacketSerializer<gMasterUserRegisterResPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterUserRegisterResPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteBool(p->success);
+        b->WriteString(p->message);
+        return b;
+    }
+    std::shared_ptr<gMasterUserRegisterResPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<gMasterUserRegisterResPacket>();
+        p->success = b->ReadBool();
+        p->message = b->ReadString();
         return p;
     }
 };

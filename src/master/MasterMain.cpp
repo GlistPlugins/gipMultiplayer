@@ -13,6 +13,8 @@
 #include <chrono>
 #include <random>
 
+#include "sqlite3.h"
+
 std::string GenerateRoomCode() {
     const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     std::random_device rd;
@@ -25,10 +27,10 @@ std::string GenerateRoomCode() {
     return code;
 }
 
-class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket> {
+class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket, gMasterUserLoginPacket, gMasterUserRegisterPacket> {
 public:
-    gMasterPacketHandler(znet::PeerSession* s, std::vector<gServerInfo>& sl, std::mutex& m) 
-        : session(s), serverList(sl), listMutex(m) {}
+    gMasterPacketHandler(znet::PeerSession* s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db) 
+        : session(s), serverList(sl), listMutex(m), db(db) {}
 
     void OnPacket(std::shared_ptr<gMasterRegisterPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
@@ -184,11 +186,73 @@ public:
         session->SendPacket(res);
     }
 
+    void OnPacket(std::shared_ptr<gMasterUserRegisterPacket> p) {
+        auto res = std::make_shared<gMasterUserRegisterResPacket>();
+        
+        if (p->username.empty() || p->email.empty() || p->password.empty()) {
+            res->success = false;
+            res->message = "All fields are required.";
+            session->SendPacket(res);
+            return;
+        }
+        
+        std::string sql = "INSERT INTO USERS (username, email, password) VALUES ('" + p->username + "', '" + p->email + "', '" + p->password + "');";
+        char* errMsg = 0;
+        int rc = sqlite3_exec(db, sql.c_str(), 0, 0, &errMsg);
+        
+        if (rc == SQLITE_OK) {
+            res->success = true;
+            res->message = "Registration successful!";
+            std::cout << "[MasterServer] Registered new user: " << p->username << " (" << p->email << ")" << std::endl;
+        } else {
+            res->success = false;
+            res->message = "Username or Email already exists.";
+            sqlite3_free(errMsg);
+        }
+        session->SendPacket(res);
+    }
+    
+    void OnPacket(std::shared_ptr<gMasterUserLoginPacket> p) {
+        auto res = std::make_shared<gMasterUserLoginResPacket>();
+        
+        std::string sql = "SELECT username, password FROM USERS WHERE email = '" + p->email + "';";
+        sqlite3_stmt* stmt;
+        int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0);
+        
+        if (rc == SQLITE_OK) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                std::string dbUser = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+                std::string dbPass = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+                
+                if (dbPass == p->password) {
+                    res->success = true;
+                    res->message = "Login successful!";
+                    res->username = dbUser;
+                    std::cout << "[MasterServer] User logged in: " << dbUser << std::endl;
+                } else {
+                    res->success = false;
+                    res->message = "Incorrect password.";
+                }
+            } else {
+                res->success = false;
+                res->message = "Email not found.";
+            }
+        } else {
+            res->success = false;
+            res->message = "Database error.";
+        }
+        sqlite3_finalize(stmt);
+        session->SendPacket(res);
+    }
+
 private:
     znet::PeerSession* session;
     std::vector<gServerInfo>& serverList;
     std::mutex& listMutex;
+    sqlite3* db;
 };
+
+#include "gDatabase.h"
 
 static std::shared_ptr<znet::Codec> makeMasterCodec() {
     auto codec = std::make_shared<znet::Codec>();
@@ -201,8 +265,17 @@ static std::shared_ptr<znet::Codec> makeMasterCodec() {
     codec->Add(PACKET_GIP_MASTER_PUNCH_EXEC, std::make_unique<gMasterPunchExecuteSerializer>());
     codec->Add(PACKET_GIP_MASTER_QUERY_ROOM, std::make_unique<gMasterQueryRoomSerializer>());
     codec->Add(PACKET_GIP_MASTER_QUERY_ROOM_RES, std::make_unique<gMasterQueryRoomResSerializer>());
+    
+    // Auth
+    codec->Add(PACKET_GIP_MASTER_USER_LOGIN, std::make_unique<gMasterUserLoginSerializer>());
+    codec->Add(PACKET_GIP_MASTER_USER_LOGIN_RES, std::make_unique<gMasterUserLoginResSerializer>());
+    codec->Add(PACKET_GIP_MASTER_USER_REGISTER, std::make_unique<gMasterUserRegisterSerializer>());
+    codec->Add(PACKET_GIP_MASTER_USER_REGISTER_RES, std::make_unique<gMasterUserRegisterResSerializer>());
+    
     return codec;
 }
+
+
 
 class gMasterServerApp : public gBaseApp {
 public:
@@ -210,11 +283,32 @@ public:
     std::vector<gServerInfo> serverList;
     std::mutex listMutex;
     uint16_t port = 25010;
+    sqlite3* db;
 
     gMasterServerApp(uint16_t p) : port(p) {}
 
     void setup() override {
         std::cout << "[MasterServer] Starting on port " << port << "..." << std::endl;
+        
+        // Initialize SQLite Database
+        int rc = sqlite3_open("assets/databases/users.db", &db);
+        if (rc) {
+            std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
+        } else {
+            std::cout << "Opened users database successfully" << std::endl;
+            const char* sql = "CREATE TABLE IF NOT EXISTS USERS ("
+                              "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                              "username TEXT UNIQUE NOT NULL,"
+                              "email TEXT UNIQUE NOT NULL,"
+                              "password TEXT NOT NULL,"
+                              "reg_date DATETIME DEFAULT CURRENT_TIMESTAMP);";
+            char* errMsg = 0;
+            sqlite3_exec(db, sql, 0, 0, &errMsg);
+            if (errMsg) {
+                std::cerr << "SQL Error: " << errMsg << std::endl;
+                sqlite3_free(errMsg);
+            }
+        }
         
         appmanager->setTargetFramerate(60);
         
@@ -225,7 +319,7 @@ public:
             d.Dispatch<znet::IncomingClientConnectedEvent>([this](znet::IncomingClientConnectedEvent& e) {
                 auto sess = e.session();
                 sess->SetCodec(makeMasterCodec());
-                sess->SetHandler(std::make_shared<gMasterPacketHandler>(sess.get(), serverList, listMutex));
+                sess->SetHandler(std::make_shared<gMasterPacketHandler>(sess.get(), serverList, listMutex, db));
                 return false;
             });
         });
