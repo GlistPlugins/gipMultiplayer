@@ -14,7 +14,7 @@ endif()
 
 set(ZNET_GIT_REPOSITORY "https://github.com/teoncreative/znet.git"
 		CACHE STRING "Git repository to fetch znet from")
-set(ZNET_GIT_TAG "main" 
+set(ZNET_GIT_TAG "7e415086bda780a46f3c6b61da4b66bbc91c951b"
 		CACHE STRING "znet commit, tag or branch to build against")
 set(ZNET_ZSTD_GIT_TAG "48c0ed73625272cb7445183b5e256b5d0a130316"
 		CACHE STRING "zstd commit to build znet's compression against")
@@ -104,12 +104,6 @@ FetchContent_Declare(znet
 		SOURCE_SUBDIR znet
 )
 FetchContent_MakeAvailable(znet)
-
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 15)
-	# buffer.h uses std::memcpy/std::memset without including <cstring> and GCC
-	# 15 no longer exposes those declarations transitively in every znet TU.
-	target_compile_options(znet PRIVATE -include cstring)
-endif()
 
 set_target_properties(znet PROPERTIES
 		RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"

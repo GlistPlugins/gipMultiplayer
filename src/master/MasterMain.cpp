@@ -27,6 +27,18 @@ std::string GenerateRoomCode() {
     return code;
 }
 
+// Renders a candidate list for logging, so it is visible what each side was
+// actually told to punch to.
+std::string JoinCandidates(const std::vector<std::string>& candidates) {
+    if (candidates.empty()) return "(none)";
+    std::string out;
+    for (size_t i = 0; i < candidates.size(); i++) {
+        if (i) out += ", ";
+        out += candidates[i];
+    }
+    return out;
+}
+
 class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket, gMasterUserLoginPacket, gMasterUserRegisterPacket> {
 public:
     gMasterPacketHandler(const std::shared_ptr<znet::PeerSession>& s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db)
@@ -88,7 +100,7 @@ public:
             newServer.peerCandidates.push_back(p->ip);
             serverList.push_back(newServer);
         }
-        std::cout << "[MasterServer] Registered server: " << p->name << " (" << actualIp << ") State: " << p->matchState << " Room: " << assignedRoomCode << " Dedicated: " << (p->isDedicated ? "YES" : "NO") << std::endl;
+        std::cout << "[MasterServer] Registered server: " << p->name << " (" << actualIp << ") State: " << p->matchState << " Room: " << assignedRoomCode << " Dedicated: " << (p->isDedicated ? "YES" : "NO") << " P2P: " << (p->useP2P ? "YES" : "NO") << " Candidates: " << actualIp << ", " << p->ip << std::endl;
 
         auto res = std::make_shared<gMasterRegisterResponsePacket>();
         res->roomCode = assignedRoomCode;
@@ -107,11 +119,19 @@ public:
         if (colon != std::string::npos) portStr = p->ip.substr(colon + 1);
         std::string actualIp = remoteIp + ":" + portStr;
 
+        bool matched = false;
         for (auto& s : serverList) {
             if (s.ip == actualIp) {
                 s.lastHeartbeat = 0.0f;
+                matched = true;
                 break;
             }
+        }
+        // A heartbeat nothing matches means this host is ageing out of the list
+        // while believing it is listed, so it is worth hearing about.
+        if (!matched) {
+            std::cout << "[MasterServer] Heartbeat from unregistered " << actualIp
+                      << ", it will not stay listed" << std::endl;
         }
     }
 
@@ -131,11 +151,20 @@ public:
                 if (sColon != std::string::npos) serverPublicIp = serverPublicIp.substr(0, sColon);
 
                 if (s.isDedicated && serverPublicIp == clientPublicIp && s.peerCandidates.size() > 1) {
+                    // Same public address means the client sits behind the same
+                    // NAT as the host, where the public mapping usually will not
+                    // hairpin back. Hand out the private address instead.
                     copy.ip = s.peerCandidates[1];
+                    std::cout << "[MasterServer] Same NAT as host " << s.roomCode
+                              << ", sending private address " << copy.ip
+                              << " instead of " << s.ip << std::endl;
                 }
                 res->servers.push_back(copy);
             }
         }
+        std::cout << "[MasterServer] Server list to " << clientPublicIp << ": "
+                  << res->servers.size() << " of " << serverList.size()
+                  << " (filter " << p->matchStateFilter << ")" << std::endl;
         session->SendPacket(res);
     }
 
@@ -143,8 +172,18 @@ public:
         std::lock_guard<std::mutex> lk(listMutex);
         gServerInfo* targetServer = nullptr;
 
+        // The identifier is whatever the client was given, and a client behind
+        // the same NAT is handed the host's private address by the list handler
+        // below. Matching only roomCode and the public ip would miss exactly
+        // that case, which is a host failing to join its own server.
         for (auto& s : serverList) {
-            if (s.roomCode == p->targetIdentifier || s.ip == p->targetIdentifier || (s.peerCandidates.size() > 1 && s.peerCandidates[1] == p->targetIdentifier)) {
+            bool match = (s.roomCode == p->targetIdentifier || s.ip == p->targetIdentifier);
+            if (!match) {
+                for (const auto& candidate : s.peerCandidates) {
+                    if (candidate == p->targetIdentifier) { match = true; break; }
+                }
+            }
+            if (match) {
                 targetServer = &s;
                 break;
             }
@@ -155,7 +194,32 @@ public:
         std::shared_ptr<znet::PeerSession> hostSession;
         if (targetServer) hostSession = targetServer->hostSession.lock();
 
-        if (hostSession) {
+        // "not found" and "found but unreachable" need different fixes, so say
+        // which one happened and what the list actually held at the time.
+        if (!targetServer) {
+            std::cout << "[MasterServer] Punch request failed: no server matches \""
+                      << p->targetIdentifier << "\". Known rooms: ";
+            if (serverList.empty()) {
+                std::cout << "(none)";
+            } else {
+                for (size_t i = 0; i < serverList.size(); i++) {
+                    if (i) std::cout << ", ";
+                    std::cout << serverList[i].roomCode << " @ " << serverList[i].ip;
+                }
+            }
+            std::cout << std::endl;
+            return;
+        }
+
+        if (!hostSession) {
+            std::cout << "[MasterServer] Punch request failed: host for room "
+                      << targetServer->roomCode << " (" << targetServer->ip
+                      << ") registered but its control connection is gone; it has to reconnect"
+                      << std::endl;
+            return;
+        }
+
+        {
             std::string clientPublicIp = session->remote_address()->readable();
             size_t cColon = clientPublicIp.find(':');
             if (cColon != std::string::npos) clientPublicIp = clientPublicIp.substr(0, cColon);
@@ -167,14 +231,14 @@ public:
             execHost->peerCandidates.push_back(clientPublicIp + ":" + std::to_string(p->clientGamePort));
             if (!p->clientIp.empty()) execHost->peerCandidates.push_back(p->clientIp);
             execHost->isHost = true;
+            std::cout << "[MasterServer]   host punches to: " << JoinCandidates(execHost->peerCandidates) << std::endl;
             hostSession->SendPacket(execHost);
 
             auto execClient = std::make_shared<gMasterPunchExecutePacket>();
             execClient->peerCandidates = targetServer->peerCandidates;
             execClient->isHost = false;
+            std::cout << "[MasterServer]   client punches to: " << JoinCandidates(execClient->peerCandidates) << std::endl;
             session->SendPacket(execClient);
-        } else {
-            std::cout << "[MasterServer] Punch request failed: Server not found or host session dead." << std::endl;
         }
     }
 
