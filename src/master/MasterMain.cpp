@@ -57,6 +57,7 @@ public:
                 s.isPrivate = p->isPrivate;
                 s.hasPassword = p->hasPassword;
                 s.isDedicated = p->isDedicated;
+                s.useP2P = p->useP2P;
                 s.hostSession = weakSession;
                 s.lastHeartbeat = 0.0f;
                 s.peerCandidates.clear();
@@ -79,6 +80,7 @@ public:
             newServer.isPrivate = p->isPrivate;
             newServer.hasPassword = p->hasPassword;
             newServer.isDedicated = p->isDedicated;
+            newServer.useP2P = p->useP2P;
             newServer.roomCode = assignedRoomCode;
             newServer.hostSession = weakSession;
             newServer.peerCandidates.clear();
