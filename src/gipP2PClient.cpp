@@ -161,7 +161,7 @@ std::shared_ptr<znet::PeerSession> gipP2PClient::joinSession(const std::string& 
         return nullptr;
     }
 
-    auto localAddr = znet::InetAddress::from("0.0.0.0", localGamePort);
+    std::shared_ptr<znet::InetAddress> localAddr = znet::InetAddress::from("0.0.0.0", localGamePort);
     auto session = znet::p2p::PunchSync(localAddr, candidates, !isHost, znet::ConnectionType::ZDT, PUNCH_TIMEOUT);
 
     if (!session) {

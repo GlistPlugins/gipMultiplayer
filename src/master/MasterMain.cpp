@@ -144,7 +144,7 @@ public:
         gServerInfo* targetServer = nullptr;
 
         for (auto& s : serverList) {
-            if (s.roomCode == p->targetIdentifier || s.ip == p->targetIdentifier) {
+            if (s.roomCode == p->targetIdentifier || s.ip == p->targetIdentifier || (s.peerCandidates.size() > 1 && s.peerCandidates[1] == p->targetIdentifier)) {
                 targetServer = &s;
                 break;
             }
@@ -193,6 +193,7 @@ public:
                 res->maxPlayers = s.maxPlayers;
                 res->hasPassword = s.hasPassword;
                 res->isDedicated = s.isDedicated;
+                res->useP2P = s.useP2P;
                 res->ip = s.ip;
                 break;
             }
