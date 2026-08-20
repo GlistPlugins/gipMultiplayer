@@ -38,6 +38,12 @@ std::string JoinCandidates(const std::vector<std::string>& candidates) {
     return out;
 }
 
+// sqlite hands back null for a NULL column, which std::string cannot take.
+std::string ColumnText(sqlite3_stmt* stmt, int column) {
+    const unsigned char* text = sqlite3_column_text(stmt, column);
+    return text ? reinterpret_cast<const char*>(text) : "";
+}
+
 class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket, gMasterUserLoginPacket, gMasterUserRegisterPacket> {
 public:
     gMasterPacketHandler(const std::shared_ptr<znet::PeerSession>& s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db)
@@ -272,60 +278,78 @@ public:
             session->SendPacket(res);
             return;
         }
+        if (!db) {
+            res->success = false;
+            res->message = "Database unavailable.";
+            session->SendPacket(res);
+            return;
+        }
 
-        std::string sql = "INSERT INTO USERS (username, email, password) VALUES ('" + p->username + "', '" + p->email + "', '" + p->password + "');";
-        char* errMsg = 0;
-        int rc = sqlite3_exec(db, sql.c_str(), 0, 0, &errMsg);
+        // Bound, never concatenated: these three strings come off the wire.
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql = "INSERT INTO USERS (username, email, password) VALUES (?, ?, ?);";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            res->success = false;
+            res->message = "Database error.";
+            session->SendPacket(res);
+            return;
+        }
+        sqlite3_bind_text(stmt, 1, p->username.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, p->email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, p->password.c_str(), -1, SQLITE_TRANSIENT);
 
-        if (rc == SQLITE_OK) {
+        const int rc = sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+
+        if (rc == SQLITE_DONE) {
             res->success = true;
             res->message = "Registration successful!";
             std::cout << "[MasterServer] Registered new user: " << p->username << " (" << p->email << ")" << std::endl;
+        } else if (rc == SQLITE_CONSTRAINT) {
+            res->success = false;
+            res->message = "Username or Email already exists.";
         } else {
             res->success = false;
-            if (errMsg) {
-                std::string errStr(errMsg);
-                if (errStr.find("UNIQUE constraint failed") != std::string::npos) {
-                    res->message = "Username or Email already exists.";
-                } else {
-                    res->message = "Database error: " + errStr;
-                }
-                sqlite3_free(errMsg);
-            } else {
-                res->message = "Unknown Database Error.";
-            }
+            res->message = "Database error.";
+            std::cerr << "[MasterServer] Register failed: " << sqlite3_errmsg(db) << std::endl;
         }
         session->SendPacket(res);
     }
 
     void OnPacket(std::shared_ptr<gMasterUserLoginPacket> p) {
         auto res = std::make_shared<gMasterUserLoginResPacket>();
+        res->success = false;
 
-        std::string sql = "SELECT username, password FROM USERS WHERE email = '" + p->email + "';";
-        sqlite3_stmt* stmt;
-        int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, 0);
+        if (p->email.empty() || p->password.empty()) {
+            res->message = "Incorrect email or password.";
+            session->SendPacket(res);
+            return;
+        }
+        if (!db) {
+            res->message = "Database unavailable.";
+            session->SendPacket(res);
+            return;
+        }
 
-        if (rc == SQLITE_OK) {
-            if (sqlite3_step(stmt) == SQLITE_ROW) {
-                std::string dbUser = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-                std::string dbPass = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-
-                if (dbPass == p->password) {
-                    res->success = true;
-                    res->message = "Login successful!";
-                    res->username = dbUser;
-                    std::cout << "[MasterServer] User logged in: " << dbUser << std::endl;
-                } else {
-                    res->success = false;
-                    res->message = "Incorrect password.";
-                }
-            } else {
-                res->success = false;
-                res->message = "Email not found.";
-            }
-        } else {
-            res->success = false;
+        // Matched in one query, and one message for both misses: telling the
+        // client which half was wrong tells it which emails are registered.
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql = "SELECT username FROM USERS WHERE email = ? AND password = ?;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
             res->message = "Database error.";
+            session->SendPacket(res);
+            return;
+        }
+        sqlite3_bind_text(stmt, 1, p->email.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, p->password.c_str(), -1, SQLITE_TRANSIENT);
+
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            res->success = true;
+            res->message = "Login successful!";
+            res->username = ColumnText(stmt, 0);
+            std::cout << "[MasterServer] User logged in: " << res->username << std::endl;
+        } else {
+            res->message = "Incorrect email or password.";
         }
         sqlite3_finalize(stmt);
         session->SendPacket(res);
@@ -370,17 +394,25 @@ public:
     std::vector<gServerInfo> serverList;
     std::mutex listMutex;
     uint16_t port = 25010;
-    sqlite3* db;
+    sqlite3* db = nullptr;
 
     gMasterServerApp(uint16_t p) : port(p) {}
+
+    ~gMasterServerApp() override {
+        server.reset();
+        if (db) sqlite3_close(db);
+    }
 
     void setup() override {
         std::cout << "[MasterServer] Starting on port " << port << "..." << std::endl;
 
         // Initialize SQLite Database
         int rc = sqlite3_open("users.db", &db);
-        if (rc) {
+        if (rc != SQLITE_OK) {
             std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
+            // Every handler checks for null rather than calling into a broken handle.
+            sqlite3_close(db);
+            db = nullptr;
         } else {
             std::cout << "Opened users database successfully" << std::endl;
             const char* sql = "CREATE TABLE IF NOT EXISTS USERS ("
