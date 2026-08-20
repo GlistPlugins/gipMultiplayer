@@ -59,6 +59,9 @@ public:
                 s.isDedicated = p->isDedicated;
                 s.hostSession = session;
                 s.lastHeartbeat = 0.0f;
+                s.peerCandidates.clear();
+                s.peerCandidates.push_back(actualIp);
+                s.peerCandidates.push_back(p->ip);
                 assignedRoomCode = s.roomCode;
                 found = true;
                 break;
@@ -78,6 +81,9 @@ public:
             newServer.isDedicated = p->isDedicated;
             newServer.roomCode = assignedRoomCode;
             newServer.hostSession = session;
+            newServer.peerCandidates.clear();
+            newServer.peerCandidates.push_back(actualIp);
+            newServer.peerCandidates.push_back(p->ip);
             serverList.push_back(newServer);
         }
         std::cout << "[MasterServer] Registered server: " << p->name << " (" << actualIp << ") State: " << p->matchState << " Room: " << assignedRoomCode << " Dedicated: " << (p->isDedicated ? "YES" : "NO") << std::endl;
@@ -130,33 +136,21 @@ public:
         }
 
         if (targetServer && targetServer->hostSession) {
-            std::string hostIpStr = targetServer->ip;
-            std::string hostPublicIp = "";
-            uint16_t hostPublicPort = 0;
-            auto colonPos = hostIpStr.find(':');
-            if (colonPos != std::string::npos) {
-                hostPublicIp = hostIpStr.substr(0, colonPos);
-                hostPublicPort = std::stoi(hostIpStr.substr(colonPos + 1));
-            } else {
-                hostPublicIp = hostIpStr;
-            }
-
             std::string clientPublicIp = session->remote_address()->readable();
             size_t cColon = clientPublicIp.find(':');
             if (cColon != std::string::npos) clientPublicIp = clientPublicIp.substr(0, cColon);
             
             std::cout << "[MasterServer] Broker Handshake: Client(" << clientPublicIp << ":" << p->clientGamePort 
-                      << ") punching Host(" << hostPublicIp << ":" << hostPublicPort << ")" << std::endl;
+                      << ") punching Host(" << targetServer->ip << ")" << std::endl;
 
             auto execHost = std::make_shared<gMasterPunchExecutePacket>();
-            execHost->remoteIp = clientPublicIp;
-            execHost->remotePort = p->clientGamePort;
+            execHost->peerCandidates.push_back(clientPublicIp + ":" + std::to_string(p->clientGamePort));
+            if (!p->clientIp.empty()) execHost->peerCandidates.push_back(p->clientIp);
             execHost->isHost = true;
             targetServer->hostSession->SendPacket(execHost);
 
             auto execClient = std::make_shared<gMasterPunchExecutePacket>();
-            execClient->remoteIp = hostPublicIp;
-            execClient->remotePort = hostPublicPort;
+            execClient->peerCandidates = targetServer->peerCandidates;
             execClient->isHost = false;
             session->SendPacket(execClient);
         } else {
@@ -206,8 +200,17 @@ public:
             std::cout << "[MasterServer] Registered new user: " << p->username << " (" << p->email << ")" << std::endl;
         } else {
             res->success = false;
-            res->message = "Username or Email already exists.";
-            sqlite3_free(errMsg);
+            if (errMsg) {
+                std::string errStr(errMsg);
+                if (errStr.find("UNIQUE constraint failed") != std::string::npos) {
+                    res->message = "Username or Email already exists.";
+                } else {
+                    res->message = "Database error: " + errStr;
+                }
+                sqlite3_free(errMsg);
+            } else {
+                res->message = "Unknown Database Error.";
+            }
         }
         session->SendPacket(res);
     }
@@ -291,7 +294,7 @@ public:
         std::cout << "[MasterServer] Starting on port " << port << "..." << std::endl;
         
         // Initialize SQLite Database
-        int rc = sqlite3_open("assets/databases/users.db", &db);
+        int rc = sqlite3_open("users.db", &db);
         if (rc) {
             std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
         } else {

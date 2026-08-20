@@ -22,6 +22,7 @@ list(APPEND PLUGIN_SRCS
 		${PLUGIN_DIR}/src/audio/gTeamVoice.cpp
 		${PLUGIN_DIR}/src/voice/gTeamVoicePackets.cpp
 		${PLUGIN_DIR}/src/voice/gTeamVoiceServer.cpp
+		${PLUGIN_DIR}/src/gipP2PClient.cpp
 )
 
 ##### PLUGIN HEADERS #####

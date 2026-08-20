@@ -3,6 +3,7 @@
 #include "znet/client.h"
 #include "znet/client_events.h"
 #include "znet/p2p/dialer.h"
+#include "znet/inet_addr.h"
 #include <iostream>
 #include <mutex>
 #include <condition_variable>
@@ -30,15 +31,24 @@ std::shared_ptr<znet::PeerSession> gipP2PClient::joinSession(const std::string& 
             : localPort(lp), punchedSession(ps), mtx(m), cv(c), punchDone(pd) {}
 
         void OnPacket(std::shared_ptr<gMasterPunchExecutePacket> p) {
-            std::cout << "[P2PClient] Broker says punch to: " << p->remoteIp << ":" << p->remotePort << " (isHost: " << p->isHost << ")" << std::endl;
+            std::cout << "[P2PClient] Broker sent " << p->peerCandidates.size() << " candidates (isHost: " << p->isHost << ")" << std::endl;
             
             std::shared_ptr<znet::InetAddress> localAddr = znet::InetAddress::from("0.0.0.0", localPort);
-            std::shared_ptr<znet::InetAddress> remoteAddr = znet::InetAddress::from(p->remoteIp, p->remotePort);
+            
+            std::vector<std::shared_ptr<znet::InetAddress>> candidates;
+            for (const auto& c : p->peerCandidates) {
+                size_t colon = c.find(':');
+                if (colon != std::string::npos) {
+                    std::string ip = c.substr(0, colon);
+                    uint16_t port = std::stoi(c.substr(colon + 1));
+                    candidates.push_back(znet::InetAddress::from(ip, port));
+                }
+            }
             
             bool isInitiator = !p->isHost;
             
             // Execute the punch synchronously
-            auto sess = znet::p2p::PunchSync(localAddr, remoteAddr, isInitiator, znet::ConnectionType::ZDT, std::chrono::seconds(10));
+            auto sess = znet::p2p::PunchSync(localAddr, candidates, isInitiator, znet::ConnectionType::ZDT, std::chrono::seconds(10));
             
             {
                 std::lock_guard<std::mutex> lock(mtx);
@@ -68,6 +78,7 @@ std::shared_ptr<znet::PeerSession> gipP2PClient::joinSession(const std::string& 
             auto req = std::make_shared<gMasterPunchRequestPacket>();
             req->targetIdentifier = targetIdentifier;
             req->clientGamePort = localGamePort;
+            req->clientIp = znet::GetLocalAddress(znet::InetProtocolVersion::IPv4) + ":" + std::to_string(localGamePort);
             sess->SendPacket(req);
             
             return false;
