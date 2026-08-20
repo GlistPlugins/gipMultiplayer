@@ -30,9 +30,9 @@ struct gServerInfo {
     std::string ip;
     std::vector<std::string> peerCandidates;
     std::string name;
-    uint32_t currentPlayers;
-    uint32_t maxPlayers;
-    int matchState;
+    uint32_t currentPlayers = 0;
+    uint32_t maxPlayers = 0;
+    int matchState = 0;
     float lastHeartbeat = 0.0f;
     bool isPrivate = false;
     bool hasPassword = false;
@@ -52,9 +52,9 @@ public:
     // Every address this host has, for peers on any shared network.
     std::vector<std::string> localIps;
     std::string name;
-    uint32_t currentPlayers;
-    uint32_t maxPlayers;
-    int matchState;
+    uint32_t currentPlayers = 0;
+    uint32_t maxPlayers = 0;
+    int matchState = 0;
     bool isPrivate = false;
     bool hasPassword = false;
     bool isDedicated = false;
@@ -65,10 +65,7 @@ class gMasterRegisterSerializer : public znet::PacketSerializer<gMasterRegisterP
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterRegisterPacket> p, std::shared_ptr<znet::Buffer> b) override {
         b->WriteString(p->ip);
-        b->WriteInt<uint32_t>(p->localIps.size());
-        for (const auto& local : p->localIps) {
-            b->WriteString(local);
-        }
+        b->WriteVector(p->localIps, &znet::Buffer::WriteString);
         b->WriteString(p->name);
         b->WriteInt(p->currentPlayers);
         b->WriteInt(p->maxPlayers);
@@ -82,10 +79,7 @@ public:
     std::shared_ptr<gMasterRegisterPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterRegisterPacket>();
         p->ip = b->ReadString();
-        uint32_t localCount = b->ReadInt<uint32_t>();
-        for (uint32_t i = 0; i < localCount; i++) {
-            p->localIps.push_back(b->ReadString());
-        }
+        p->localIps = b->ReadVector<std::string>(&znet::Buffer::ReadString);
         p->name = b->ReadString();
         p->currentPlayers = b->ReadInt<uint32_t>();
         p->maxPlayers = b->ReadInt<uint32_t>();
@@ -145,7 +139,7 @@ public:
 class gMasterSendListSerializer : public znet::PacketSerializer<gMasterSendListPacket> {
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterSendListPacket> p, std::shared_ptr<znet::Buffer> b) override {
-        b->WriteInt<int>(p->servers.size());
+        b->WriteVarInt(p->servers.size());
         for (const auto& s : p->servers) {
             b->WriteString(s.ip);
             b->WriteString(s.name);
@@ -162,8 +156,10 @@ public:
     }
     std::shared_ptr<gMasterSendListPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterSendListPacket>();
-        int count = b->ReadInt<int>();
-        for (int i = 0; i < count; i++) {
+        size_t count = b->ReadVarInt<size_t>();
+        // One string minimum per entry, so a count past the buffer is corrupt.
+        if (count > b->readable_bytes()) return p;
+        for (size_t i = 0; i < count; i++) {
             gServerInfo s;
             s.ip = b->ReadString();
             s.name = b->ReadString();
@@ -206,27 +202,21 @@ public:
     std::string targetIdentifier;
     // Every address the client can be reached at.
     std::vector<std::string> clientIps;
-    uint16_t clientGamePort;
+    uint16_t clientGamePort = 0;
 };
 
 class gMasterPunchRequestSerializer : public znet::PacketSerializer<gMasterPunchRequestPacket> {
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterPunchRequestPacket> p, std::shared_ptr<znet::Buffer> b) override {
         b->WriteString(p->targetIdentifier);
-        b->WriteInt<uint32_t>(p->clientIps.size());
-        for (const auto& local : p->clientIps) {
-            b->WriteString(local);
-        }
+        b->WriteVector(p->clientIps, &znet::Buffer::WriteString);
         b->WriteInt<uint16_t>(p->clientGamePort);
         return b;
     }
     std::shared_ptr<gMasterPunchRequestPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterPunchRequestPacket>();
         p->targetIdentifier = b->ReadString();
-        uint32_t clientCount = b->ReadInt<uint32_t>();
-        for (uint32_t i = 0; i < clientCount; i++) {
-            p->clientIps.push_back(b->ReadString());
-        }
+        p->clientIps = b->ReadVector<std::string>(&znet::Buffer::ReadString);
         p->clientGamePort = b->ReadInt<uint16_t>();
         return p;
     }
@@ -236,25 +226,19 @@ class gMasterPunchExecutePacket : public znet::Packet {
 public:
     gMasterPunchExecutePacket() : Packet(PACKET_GIP_MASTER_PUNCH_EXEC) {}
     std::vector<std::string> peerCandidates;
-    bool isHost;
+    bool isHost = false;
 };
 
 class gMasterPunchExecuteSerializer : public znet::PacketSerializer<gMasterPunchExecutePacket> {
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterPunchExecutePacket> p, std::shared_ptr<znet::Buffer> b) override {
-        b->WriteInt<uint32_t>(p->peerCandidates.size());
-        for (const auto& candidate : p->peerCandidates) {
-            b->WriteString(candidate);
-        }
+        b->WriteVector(p->peerCandidates, &znet::Buffer::WriteString);
         b->WriteInt<int>(p->isHost ? 1 : 0);
         return b;
     }
     std::shared_ptr<gMasterPunchExecutePacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterPunchExecutePacket>();
-        uint32_t count = b->ReadInt<uint32_t>();
-        for (uint32_t i = 0; i < count; i++) {
-            p->peerCandidates.push_back(b->ReadString());
-        }
+        p->peerCandidates = b->ReadVector<std::string>(&znet::Buffer::ReadString);
         p->isHost = b->ReadInt<int>() == 1;
         return p;
     }
@@ -352,7 +336,7 @@ public:
 class gMasterUserLoginResPacket : public znet::Packet {
 public:
     gMasterUserLoginResPacket() : Packet(PACKET_GIP_MASTER_USER_LOGIN_RES) {}
-    bool success;
+    bool success = false;
     std::string message;
     std::string username;
 };
@@ -402,7 +386,7 @@ public:
 class gMasterUserRegisterResPacket : public znet::Packet {
 public:
     gMasterUserRegisterResPacket() : Packet(PACKET_GIP_MASTER_USER_REGISTER_RES) {}
-    bool success;
+    bool success = false;
     std::string message;
 };
 
