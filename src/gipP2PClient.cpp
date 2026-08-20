@@ -17,9 +17,7 @@ constexpr auto BROKER_TIMEOUT = std::chrono::seconds(15);
 constexpr auto PUNCH_TIMEOUT = std::chrono::seconds(10);
 constexpr auto HANDSHAKE_TIMEOUT = std::chrono::seconds(10);
 
-// What the broker tells us, handed from its network thread to the caller.
-// Shared rather than referenced: the broker link can outlive the wait below,
-// and a handler writing into a returned function's locals is a use after free.
+// Shared, not referenced: the broker link can outlive the wait below.
 struct gBrokerReply {
     std::mutex mutex;
     std::condition_variable cv;
@@ -37,9 +35,8 @@ struct gBrokerReply {
     }
 };
 
-// Only records what the broker sent and wakes the caller. The punch itself must
-// not happen here: this runs on the broker link's worker, and blocking it stops
-// the link servicing itself, which ends in an idle timeout disconnect.
+// Records and wakes only. Punching here would block the broker link's
+// worker until it idle-times out.
 class gBrokerHandler : public znet::PacketHandler<gBrokerHandler, gMasterPunchExecutePacket> {
 public:
     explicit gBrokerHandler(std::shared_ptr<gBrokerReply> reply) : reply_(std::move(reply)) {}
@@ -77,9 +74,7 @@ std::vector<std::shared_ptr<znet::InetAddress>> parseCandidates(const std::vecto
     return out;
 }
 
-// PunchSync hands back a session that is still negotiating encryption and
-// compression. Sending on it before it settles fails, so wait for it to come up
-// the same way the host side does.
+// PunchSync returns mid-handshake; sending before it settles fails.
 bool waitUntilReady(const std::shared_ptr<znet::PeerSession>& session) {
     const auto deadline = std::chrono::steady_clock::now() + HANDSHAKE_TIMEOUT;
     while (!session->IsReady() && session->IsAlive() && std::chrono::steady_clock::now() < deadline) {
@@ -114,7 +109,11 @@ std::shared_ptr<znet::PeerSession> gipP2PClient::joinSession(const std::string& 
             auto req = std::make_shared<gMasterPunchRequestPacket>();
             req->targetIdentifier = targetIdentifier;
             req->clientGamePort = localGamePort;
-            req->clientIp = znet::GetLocalAddress(znet::InetProtocolVersion::IPv4) + ":" + std::to_string(localGamePort);
+            // Every local network, so a host sharing one has a path.
+            const std::string port = ":" + std::to_string(localGamePort);
+            for (const auto& local : znet::GetLocalAddresses(znet::InetProtocolVersion::IPv4)) {
+                req->clientIps.push_back(local + port);
+            }
             sess->SendPacket(req);
             return false;
         });
@@ -137,8 +136,7 @@ std::shared_ptr<znet::PeerSession> gipP2PClient::joinSession(const std::string& 
         return reply->hasCandidates;
     }();
 
-    // The broker is only needed for the introduction, and holding it open across
-    // the punch keeps a worker busy for no reason.
+    // Only needed for the introduction.
     masterClient->Disconnect();
     masterClient.reset();
 

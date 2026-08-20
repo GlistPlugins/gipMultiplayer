@@ -47,7 +47,10 @@ struct gServerInfo {
 class gMasterRegisterPacket : public znet::Packet {
 public:
     gMasterRegisterPacket() : Packet(PACKET_GIP_MASTER_REGISTER) {}
+    // Advertised address; every candidate below shares its port.
     std::string ip;
+    // Every address this host has, for peers on any shared network.
+    std::vector<std::string> localIps;
     std::string name;
     uint32_t currentPlayers;
     uint32_t maxPlayers;
@@ -62,6 +65,10 @@ class gMasterRegisterSerializer : public znet::PacketSerializer<gMasterRegisterP
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterRegisterPacket> p, std::shared_ptr<znet::Buffer> b) override {
         b->WriteString(p->ip);
+        b->WriteInt<uint32_t>(p->localIps.size());
+        for (const auto& local : p->localIps) {
+            b->WriteString(local);
+        }
         b->WriteString(p->name);
         b->WriteInt(p->currentPlayers);
         b->WriteInt(p->maxPlayers);
@@ -75,6 +82,10 @@ public:
     std::shared_ptr<gMasterRegisterPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterRegisterPacket>();
         p->ip = b->ReadString();
+        uint32_t localCount = b->ReadInt<uint32_t>();
+        for (uint32_t i = 0; i < localCount; i++) {
+            p->localIps.push_back(b->ReadString());
+        }
         p->name = b->ReadString();
         p->currentPlayers = b->ReadInt<uint32_t>();
         p->maxPlayers = b->ReadInt<uint32_t>();
@@ -193,7 +204,8 @@ class gMasterPunchRequestPacket : public znet::Packet {
 public:
     gMasterPunchRequestPacket() : Packet(PACKET_GIP_MASTER_PUNCH_REQ) {}
     std::string targetIdentifier;
-    std::string clientIp;
+    // Every address the client can be reached at.
+    std::vector<std::string> clientIps;
     uint16_t clientGamePort;
 };
 
@@ -201,14 +213,20 @@ class gMasterPunchRequestSerializer : public znet::PacketSerializer<gMasterPunch
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterPunchRequestPacket> p, std::shared_ptr<znet::Buffer> b) override {
         b->WriteString(p->targetIdentifier);
-        b->WriteString(p->clientIp);
+        b->WriteInt<uint32_t>(p->clientIps.size());
+        for (const auto& local : p->clientIps) {
+            b->WriteString(local);
+        }
         b->WriteInt<uint16_t>(p->clientGamePort);
         return b;
     }
     std::shared_ptr<gMasterPunchRequestPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterPunchRequestPacket>();
         p->targetIdentifier = b->ReadString();
-        p->clientIp = b->ReadString();
+        uint32_t clientCount = b->ReadInt<uint32_t>();
+        for (uint32_t i = 0; i < clientCount; i++) {
+            p->clientIps.push_back(b->ReadString());
+        }
         p->clientGamePort = b->ReadInt<uint16_t>();
         return p;
     }

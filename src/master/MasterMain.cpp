@@ -27,8 +27,7 @@ std::string GenerateRoomCode() {
     return code;
 }
 
-// Renders a candidate list for logging, so it is visible what each side was
-// actually told to punch to.
+// Renders a candidate list for logging.
 std::string JoinCandidates(const std::vector<std::string>& candidates) {
     if (candidates.empty()) return "(none)";
     std::string out;
@@ -60,6 +59,13 @@ public:
         if (colon != std::string::npos) portStr = p->ip.substr(colon + 1);
         std::string actualIp = remoteIp + ":" + portStr;
 
+        // Observed address first, then every network the host reports.
+        std::vector<std::string> candidates;
+        candidates.push_back(actualIp);
+        for (const auto& local : p->localIps) {
+            if (local != actualIp) candidates.push_back(local);
+        }
+
         for (auto& s : serverList) {
             if (s.ip == actualIp) {
                 s.name = p->name;
@@ -72,9 +78,7 @@ public:
                 s.useP2P = p->useP2P;
                 s.hostSession = weakSession;
                 s.lastHeartbeat = 0.0f;
-                s.peerCandidates.clear();
-                s.peerCandidates.push_back(actualIp);
-                s.peerCandidates.push_back(p->ip);
+                s.peerCandidates = candidates;
                 assignedRoomCode = s.roomCode;
                 found = true;
                 break;
@@ -95,12 +99,10 @@ public:
             newServer.useP2P = p->useP2P;
             newServer.roomCode = assignedRoomCode;
             newServer.hostSession = weakSession;
-            newServer.peerCandidates.clear();
-            newServer.peerCandidates.push_back(actualIp);
-            newServer.peerCandidates.push_back(p->ip);
+            newServer.peerCandidates = candidates;
             serverList.push_back(newServer);
         }
-        std::cout << "[MasterServer] Registered server: " << p->name << " (" << actualIp << ") State: " << p->matchState << " Room: " << assignedRoomCode << " Dedicated: " << (p->isDedicated ? "YES" : "NO") << " P2P: " << (p->useP2P ? "YES" : "NO") << " Candidates: " << actualIp << ", " << p->ip << std::endl;
+        std::cout << "[MasterServer] Registered server: " << p->name << " (" << actualIp << ") State: " << p->matchState << " Room: " << assignedRoomCode << " Dedicated: " << (p->isDedicated ? "YES" : "NO") << " P2P: " << (p->useP2P ? "YES" : "NO") << " Candidates: " << JoinCandidates(candidates) << std::endl;
 
         auto res = std::make_shared<gMasterRegisterResponsePacket>();
         res->roomCode = assignedRoomCode;
@@ -127,8 +129,7 @@ public:
                 break;
             }
         }
-        // A heartbeat nothing matches means this host is ageing out of the list
-        // while believing it is listed, so it is worth hearing about.
+        // This host is ageing out while believing it is listed.
         if (!matched) {
             std::cout << "[MasterServer] Heartbeat from unregistered " << actualIp
                       << ", it will not stay listed" << std::endl;
@@ -151,9 +152,7 @@ public:
                 if (sColon != std::string::npos) serverPublicIp = serverPublicIp.substr(0, sColon);
 
                 if (s.isDedicated && serverPublicIp == clientPublicIp && s.peerCandidates.size() > 1) {
-                    // Same public address means the client sits behind the same
-                    // NAT as the host, where the public mapping usually will not
-                    // hairpin back. Hand out the private address instead.
+                    // Same NAT as the host, which usually will not hairpin.
                     copy.ip = s.peerCandidates[1];
                     std::cout << "[MasterServer] Same NAT as host " << s.roomCode
                               << ", sending private address " << copy.ip
@@ -172,10 +171,8 @@ public:
         std::lock_guard<std::mutex> lk(listMutex);
         gServerInfo* targetServer = nullptr;
 
-        // The identifier is whatever the client was given, and a client behind
-        // the same NAT is handed the host's private address by the list handler
-        // below. Matching only roomCode and the public ip would miss exactly
-        // that case, which is a host failing to join its own server.
+        // A same-NAT client is handed the host's private address, so match
+        // candidates too, not just roomCode and the public ip.
         for (auto& s : serverList) {
             bool match = (s.roomCode == p->targetIdentifier || s.ip == p->targetIdentifier);
             if (!match) {
@@ -189,13 +186,11 @@ public:
             }
         }
 
-        // lock() fails when the host has gone away since it registered, which is
-        // the window the heartbeat prune has not caught up with yet.
+        // Fails if the host went away before the prune caught up.
         std::shared_ptr<znet::PeerSession> hostSession;
         if (targetServer) hostSession = targetServer->hostSession.lock();
 
-        // "not found" and "found but unreachable" need different fixes, so say
-        // which one happened and what the list actually held at the time.
+        // These two need different fixes, so say which one happened.
         if (!targetServer) {
             std::cout << "[MasterServer] Punch request failed: no server matches \""
                       << p->targetIdentifier << "\". Known rooms: ";
@@ -228,8 +223,11 @@ public:
                       << ") punching Host(" << targetServer->ip << ")" << std::endl;
 
             auto execHost = std::make_shared<gMasterPunchExecutePacket>();
-            execHost->peerCandidates.push_back(clientPublicIp + ":" + std::to_string(p->clientGamePort));
-            if (!p->clientIp.empty()) execHost->peerCandidates.push_back(p->clientIp);
+            const std::string clientPublic = clientPublicIp + ":" + std::to_string(p->clientGamePort);
+            execHost->peerCandidates.push_back(clientPublic);
+            for (const auto& local : p->clientIps) {
+                if (local != clientPublic) execHost->peerCandidates.push_back(local);
+            }
             execHost->isHost = true;
             std::cout << "[MasterServer]   host punches to: " << JoinCandidates(execHost->peerCandidates) << std::endl;
             hostSession->SendPacket(execHost);
