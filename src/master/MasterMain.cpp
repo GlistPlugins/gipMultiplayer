@@ -206,8 +206,17 @@ public:
             std::cout << "[MasterServer] Registered new user: " << p->username << " (" << p->email << ")" << std::endl;
         } else {
             res->success = false;
-            res->message = "Username or Email already exists.";
-            sqlite3_free(errMsg);
+            if (errMsg) {
+                std::string errStr(errMsg);
+                if (errStr.find("UNIQUE constraint failed") != std::string::npos) {
+                    res->message = "Username or Email already exists.";
+                } else {
+                    res->message = "Database error: " + errStr;
+                }
+                sqlite3_free(errMsg);
+            } else {
+                res->message = "Unknown Database Error.";
+            }
         }
         session->SendPacket(res);
     }
@@ -291,7 +300,7 @@ public:
         std::cout << "[MasterServer] Starting on port " << port << "..." << std::endl;
         
         // Initialize SQLite Database
-        int rc = sqlite3_open("assets/databases/users.db", &db);
+        int rc = sqlite3_open("users.db", &db);
         if (rc) {
             std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
         } else {
