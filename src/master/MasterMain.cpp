@@ -257,6 +257,7 @@ public:
                 res->maxPlayers = s.maxPlayers;
                 res->hasPassword = s.hasPassword;
                 res->isDedicated = s.isDedicated;
+                res->useP2P = s.useP2P;
                 res->ip = s.ip;
                 break;
             }

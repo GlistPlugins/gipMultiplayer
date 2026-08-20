@@ -271,6 +271,7 @@ public:
     uint32_t maxPlayers = 0;
     bool hasPassword = false;
     bool isDedicated = false;
+    bool useP2P = false;
     std::string ip = "";
 };
 
@@ -285,6 +286,7 @@ public:
             b->WriteInt<uint32_t>(p->maxPlayers);
             b->WriteBool(p->hasPassword);
             b->WriteBool(p->isDedicated);
+            b->WriteBool(p->useP2P);
             b->WriteString(p->ip);
         }
         return b;
@@ -299,6 +301,7 @@ public:
             p->maxPlayers = b->ReadInt<uint32_t>();
             p->hasPassword = b->ReadBool();
             p->isDedicated = b->ReadBool();
+            p->useP2P = b->ReadBool();
             p->ip = b->ReadString();
         }
         return p;
