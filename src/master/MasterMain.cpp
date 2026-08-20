@@ -12,19 +12,38 @@
 #include <thread>
 #include <chrono>
 #include <random>
+#include <stdexcept>
 
 #include "sqlite3.h"
 
 std::string GenerateRoomCode() {
     const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    std::random_device rd;
-    std::mt19937 gen(rd());
+    static thread_local std::mt19937 gen(std::random_device{}());
     std::uniform_int_distribution<> dis(0, sizeof(charset) - 2);
     std::string code;
     for (int i = 0; i < 6; ++i) {
         code += charset[dis(gen)];
     }
     return code;
+}
+
+// Two rooms sharing a code would make joins land on whichever came first.
+std::string GenerateUniqueRoomCode(const std::vector<gServerInfo>& serverList) {
+    for (int attempt = 0; attempt < 32; attempt++) {
+        std::string code = GenerateRoomCode();
+        bool taken = false;
+        for (const auto& s : serverList) {
+            if (s.roomCode == code) { taken = true; break; }
+        }
+        if (!taken) return code;
+    }
+    return GenerateRoomCode();
+}
+
+// sqlite hands back null for a NULL column, which std::string cannot take.
+std::string ColumnText(sqlite3_stmt* stmt, int column) {
+    const unsigned char* text = sqlite3_column_text(stmt, column);
+    return text ? reinterpret_cast<const char*>(text) : "";
 }
 
 // Renders a candidate list for logging.
@@ -36,12 +55,6 @@ std::string JoinCandidates(const std::vector<std::string>& candidates) {
         out += candidates[i];
     }
     return out;
-}
-
-// sqlite hands back null for a NULL column, which std::string cannot take.
-std::string ColumnText(sqlite3_stmt* stmt, int column) {
-    const unsigned char* text = sqlite3_column_text(stmt, column);
-    return text ? reinterpret_cast<const char*>(text) : "";
 }
 
 class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket, gMasterUserLoginPacket, gMasterUserRegisterPacket> {
@@ -91,7 +104,7 @@ public:
             }
         }
         if (!found) {
-            assignedRoomCode = GenerateRoomCode();
+            assignedRoomCode = GenerateUniqueRoomCode(serverList);
             gServerInfo newServer;
             newServer.ip = actualIp;
             newServer.name = p->name;
@@ -448,9 +461,10 @@ public:
     }
 
     void update() override {
+        const float deltaTime = static_cast<float>(appmanager->getElapsedTime());
         std::lock_guard<std::mutex> lk(listMutex);
         for (auto it = serverList.begin(); it != serverList.end(); ) {
-            it->lastHeartbeat += 0.016f;
+            it->lastHeartbeat += deltaTime;
             // A host whose session has gone is unreachable now, so it goes
             // immediately rather than sitting in the list for the full timeout
             // and being handed out to clients that cannot punch to it.
@@ -464,8 +478,6 @@ public:
                 ++it;
             }
         }
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(16));
     }
 };
 
@@ -474,7 +486,13 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--port" && i + 1 < argc) {
-            port = std::stoi(argv[++i]);
+            try {
+                int parsed = std::stoi(argv[++i]);
+                if (parsed < 1 || parsed > 65535) throw std::out_of_range("port");
+                port = static_cast<uint16_t>(parsed);
+            } catch (const std::exception&) {
+                std::cerr << "Invalid --port value, using " << port << std::endl;
+            }
         }
     }
     gStartEngine(new gMasterServerApp(port), "MasterServer", G_LOOPMODE_NORMAL);
