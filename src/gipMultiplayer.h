@@ -1,30 +1,35 @@
 /*
  * gipMultiplayer.h
  *
- *  Created on: August 5, 2025
- *      Authors: Yusuf Ustaoglu, Muhammet Furkan Demir
+ * High-level GlistEngine Multiplayer Plugin Interface.
+ * Completely encapsulates underlying znet transport and provides generic
+ * matchmaking, P2P NAT hole punching, and 20 Hz state replication.
  */
 
 #ifndef GIPMULTIPLAYER_H
 #define GIPMULTIPLAYER_H
 
-#include <cstring>
-
-#include "znet/packet_handler.h"
-#include "znet/peer_session.h"
-#include "znet/init.h"
-#include "znet/codec.h"
-#include "znet/client.h"
-#include "znet/server.h"
-#include "znet/packet.h"
-#include "znet/event.h"
-#include "znet/server_events.h"
-#include "znet/client_events.h"
+#include "gBasePlugin.h"
+#include "GamePackets.h"
+#include "GameBackend.h"
+#include "GameBackendLocal.h"
+#include "GameBackendRemote.h"
+#include "GameBackendServer.h"
+#include "NetworkManager.h"
+#include "NetworkSynchronizer.h"
+#include "master/gServerBrowser.h"
 
 #include "voice/gTeamVoicePackets.h"
 #include "voice/gTeamVoiceServer.h"
 #include "audio/gTeamVoice.h"
 
-namespace gipMultiplayer = znet;
+class gipMultiplayer : public gBasePlugin {
+public:
+	gipMultiplayer() = default;
+	virtual ~gipMultiplayer() = default;
 
-#endif //GIPMULTIPLAYER_H
+	static NetworkManager* getNetworkManager() { return NetworkManager::getInstance(); }
+	static NetworkSynchronizer* getSynchronizer() { return NetworkSynchronizer::getInstance(); }
+};
+
+#endif // GIPMULTIPLAYER_H

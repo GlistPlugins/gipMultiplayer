@@ -23,6 +23,13 @@ list(APPEND PLUGIN_SRCS
 		${PLUGIN_DIR}/src/voice/gTeamVoicePackets.cpp
 		${PLUGIN_DIR}/src/voice/gTeamVoiceServer.cpp
 		${PLUGIN_DIR}/src/gipP2PClient.cpp
+		${PLUGIN_DIR}/src/GameBackend.cpp
+		${PLUGIN_DIR}/src/GameBackendLocal.cpp
+		${PLUGIN_DIR}/src/GameBackendRemote.cpp
+		${PLUGIN_DIR}/src/GameBackendServer.cpp
+		${PLUGIN_DIR}/src/NetworkManager.cpp
+		${PLUGIN_DIR}/src/NetworkSynchronizer.cpp
+		${PLUGIN_DIR}/src/master/gServerBrowser.cpp
 )
 
 ##### PLUGIN HEADERS #####
