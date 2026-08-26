@@ -119,6 +119,9 @@ public:
 	void setLocalTeam(uint8_t teamId) { localTeam = teamId; }
 	uint8_t getLocalTeam() const { return localTeam; }
 
+	int getPing() const { return currentPing.load(std::memory_order_relaxed); }
+	void onPongReceived(uint64_t timestamp);
+
 protected:
 	GameBackend();
 
@@ -156,6 +159,8 @@ protected:
 	float networkTimer = 0.f;
 	float timeSinceLastKeepAlive = 0.f;
 	float keepAliveTimer = 0.f;
+	float pingTimer = 0.f;
+	std::atomic<int> currentPing{0};
 	bool disconnectNotified = false;
 	bool isDedicatedServer = false;
 

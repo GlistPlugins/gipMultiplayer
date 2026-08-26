@@ -5,7 +5,7 @@
 // The server broadcasts other clients' positions to us as NodeStatePackets,
 // and notifies us when a client leaves via NodeLeavePacket.
 // Both are enqueued for the main thread to process in GameBackend::update().
-class ClientPacketHandler : public znet::PacketHandler<ClientPacketHandler, NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket, LobbyStatePacket, StartMatchPacket, LobbyKickPacket, KeepAlivePacket> {
+class ClientPacketHandler : public znet::PacketHandler<ClientPacketHandler, NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket, LobbyStatePacket, StartMatchPacket, LobbyKickPacket, KeepAlivePacket, PingPacket, PongPacket> {
 public:
 	ClientPacketHandler(GameBackendRemote* b) : backend(b) {}
 
@@ -22,6 +22,15 @@ public:
 	void OnPacket(std::shared_ptr<StartMatchPacket> p) {backend->enqueuePacket(std::static_pointer_cast<znet::Packet>(p));}
 	void OnPacket(std::shared_ptr<LobbyKickPacket> p) {backend->enqueuePacket(std::static_pointer_cast<znet::Packet>(p));}
 	void OnPacket(std::shared_ptr<KeepAlivePacket> p) {backend->enqueuePacket(std::static_pointer_cast<znet::Packet>(p));}
+
+	void OnPacket(std::shared_ptr<PingPacket> p) {
+		auto pong = std::make_shared<PongPacket>();
+		pong->timestamp = p->timestamp;
+		backend->sendPacket(pong);
+	}
+	void OnPacket(std::shared_ptr<PongPacket> p) {
+		backend->onPongReceived(p->timestamp);
+	}
 
 	void OnUnknown(std::shared_ptr<znet::Packet>) {}
 
@@ -47,6 +56,8 @@ static std::shared_ptr<znet::Codec> makeCodec() {
 	codec->Add(PACKET_START_MATCH, std::make_unique<StartMatchSerializer>());
 	codec->Add(PACKET_LOBBY_KICK, std::make_unique<LobbyKickSerializer>());
 	codec->Add(PACKET_KEEPALIVE, std::make_unique<KeepAliveSerializer>());
+	codec->Add(PACKET_PING, std::make_unique<PingSerializer>());
+	codec->Add(PACKET_PONG, std::make_unique<PongSerializer>());
 	
 	return codec;
 }

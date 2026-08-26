@@ -1,5 +1,6 @@
 #include "GameBackend.h"
 #include "NetworkManager.h"
+#include <chrono>
 
 GameBackend::GameBackend() {
 }
@@ -259,6 +260,19 @@ void GameBackend::update(float deltaTime) {
 			if (ondisconnected) ondisconnected();
 			return;
 		}
+
+		if (!disconnectNotified) {
+			pingTimer += deltaTime;
+			if (pingTimer >= 1.0f) {
+				pingTimer = 0.0f;
+				uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+				auto ping = std::make_shared<PingPacket>();
+				ping->timestamp = now;
+				sendPacket(ping);
+			}
+		}
+	} else {
+		currentPing.store(0, std::memory_order_relaxed);
 	}
 
 	// Ease remote nodes toward the last position we heard about
@@ -336,4 +350,10 @@ void GameBackend::setOnPlayerHit(std::function<void(uint32_t, uint32_t, float)> 
 
 void GameBackend::setOnPlayerKilled(std::function<void(uint32_t, uint32_t)> cb) {
 	onplayerkilled = std::move(cb);
+}
+
+void GameBackend::onPongReceived(uint64_t timestamp) {
+	uint64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	int rtt = (now >= timestamp) ? static_cast<int>(now - timestamp) : 0;
+	currentPing.store(rtt, std::memory_order_relaxed);
 }
