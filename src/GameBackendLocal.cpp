@@ -14,7 +14,7 @@
 //   1. Enqueues it into the host's backend so the host sees the remote player.
 //   2. Tags the session with the sender's ID (for identification on disconnect).
 //   3. Rebroadcasts the packet to all OTHER connected clients.
-class ServerPacketHandler : public znet::PacketHandler<ServerPacketHandler, NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket, ServerQueryReqPacket, LobbyJoinPacket, ToggleReadyPacket, SwitchTeamPacket, StartMatchPacket, KeepAlivePacket> {
+class ServerPacketHandler : public znet::PacketHandler<ServerPacketHandler, NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket, ServerQueryReqPacket, LobbyJoinPacket, ToggleReadyPacket, SwitchTeamPacket, StartMatchPacket, KeepAlivePacket, PingPacket, PongPacket> {
 public:
 	ServerPacketHandler(GameBackendLocal* b, znet::PeerSession* s) : backend(b), peersession(s) {}
 
@@ -76,6 +76,16 @@ public:
 		backend->enqueuePacket(std::static_pointer_cast<znet::Packet>(p));
 	}
 
+	void OnPacket(std::shared_ptr<PingPacket> p) {
+		auto pong = std::make_shared<PongPacket>();
+		pong->timestamp = p->timestamp;
+		peersession->SendPacket(pong);
+	}
+
+	void OnPacket(std::shared_ptr<PongPacket> p) {
+		backend->onPongReceived(p->timestamp);
+	}
+
 	void OnUnknown(std::shared_ptr<znet::Packet>) {}
 
 private:
@@ -104,6 +114,8 @@ static std::shared_ptr<znet::Codec> makeCodec() {
 	codec->Add(PACKET_START_MATCH, std::make_unique<StartMatchSerializer>());
 	codec->Add(PACKET_LOBBY_KICK, std::make_unique<LobbyKickSerializer>());
 	codec->Add(PACKET_KEEPALIVE, std::make_unique<KeepAliveSerializer>());
+	codec->Add(PACKET_PING, std::make_unique<PingSerializer>());
+	codec->Add(PACKET_PONG, std::make_unique<PongSerializer>());
 
 	return codec;
 }

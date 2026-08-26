@@ -32,7 +32,9 @@ enum : znet::PacketId {
     PACKET_SWITCH_TEAM,
     PACKET_START_MATCH,
     PACKET_LOBBY_KICK,
-    PACKET_KEEPALIVE
+    PACKET_KEEPALIVE,
+    PACKET_PING,
+    PACKET_PONG
 };
 
 class KeepAlivePacket : public znet::Packet {
@@ -47,6 +49,44 @@ public:
     }
     std::shared_ptr<KeepAlivePacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         return std::make_shared<KeepAlivePacket>();
+    }
+};
+
+class PingPacket : public znet::Packet {
+public:
+    PingPacket() : Packet(PACKET_PING) {}
+    uint64_t timestamp = 0;
+};
+
+class PingSerializer : public znet::PacketSerializer<PingPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<PingPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteInt<uint64_t>(p->timestamp);
+        return b;
+    }
+    std::shared_ptr<PingPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<PingPacket>();
+        p->timestamp = b->ReadInt<uint64_t>();
+        return p;
+    }
+};
+
+class PongPacket : public znet::Packet {
+public:
+    PongPacket() : Packet(PACKET_PONG) {}
+    uint64_t timestamp = 0;
+};
+
+class PongSerializer : public znet::PacketSerializer<PongPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<PongPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteInt<uint64_t>(p->timestamp);
+        return b;
+    }
+    std::shared_ptr<PongPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<PongPacket>();
+        p->timestamp = b->ReadInt<uint64_t>();
+        return p;
     }
 };
 

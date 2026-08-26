@@ -16,9 +16,18 @@ public:
 
     void disconnect();
 
-    // Authentication
+    // Authentication & Token Management
     void loginUser(const std::string& email, const std::string& password);
+    void loginWithToken(const std::string& email, const std::string& token);
     void registerUser(const std::string& username, const std::string& email, const std::string& password);
+    void logoutUser();
+
+    // Secure Session Management (AES-256 encrypted token storage)
+    void saveSession(const std::string& email, const std::string& sessionToken);
+    bool loadSession(std::string& outEmail, std::string& outSessionToken);
+    void clearSession();
+    bool hasSavedSession() const;
+    void autoLogin();
 
     bool isHost() const { return hostMode; }
 
@@ -40,6 +49,8 @@ public:
     void switchTeam(uint8_t teamId);
     void startMatch(); // Only works if isHost() is true
     void kickPlayer(uint32_t playerId);
+
+    int getPing() const;
 
     // Callbacks for UI
     void setOnServerQueried(std::function<void(std::string, std::string, std::string, std::string, std::string, bool, bool)> cb) { onServerQueried = cb; }
@@ -84,6 +95,7 @@ public:
     void pushQueryResult(const std::string& name, const std::string& format, const std::string& sizeStr,
                          const std::string& ip, const std::string& realIp, bool isDedicated, bool useP2P);
     void setAuthResult(AuthStatus status, const std::string& message, const std::string& username = "");
+    void onAuthSuccess(const std::string& username, const std::string& token);
 
 private:
     NetworkManager() = default;
@@ -126,6 +138,8 @@ private:
     mutable std::mutex authMutex;
     std::string authMessageText;
     std::string authUsername;
+    std::string sessionEmail;
+    std::string sessionToken;
 
     bool hostMode = false;
     uint8_t lobbyTeamSize = 2;

@@ -23,7 +23,9 @@ enum MasterPacketId {
     PACKET_GIP_MASTER_USER_LOGIN = 309,
     PACKET_GIP_MASTER_USER_LOGIN_RES = 310,
     PACKET_GIP_MASTER_USER_REGISTER = 311,
-    PACKET_GIP_MASTER_USER_REGISTER_RES = 312
+    PACKET_GIP_MASTER_USER_REGISTER_RES = 312,
+    PACKET_GIP_MASTER_USER_TOKEN_LOGIN = 313,
+    PACKET_GIP_MASTER_USER_LOGOUT = 314
 };
 
 struct gServerInfo {
@@ -339,6 +341,7 @@ public:
     bool success = false;
     std::string message;
     std::string username;
+    std::string token;
 };
 
 class gMasterUserLoginResSerializer : public znet::PacketSerializer<gMasterUserLoginResPacket> {
@@ -347,6 +350,7 @@ public:
         b->WriteBool(p->success);
         b->WriteString(p->message);
         b->WriteString(p->username);
+        b->WriteString(p->token);
         return b;
     }
     std::shared_ptr<gMasterUserLoginResPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
@@ -354,6 +358,7 @@ public:
         p->success = b->ReadBool();
         p->message = b->ReadString();
         p->username = b->ReadString();
+        p->token = b->ReadString();
         return p;
     }
 };
@@ -388,6 +393,7 @@ public:
     gMasterUserRegisterResPacket() : Packet(PACKET_GIP_MASTER_USER_REGISTER_RES) {}
     bool success = false;
     std::string message;
+    std::string token;
 };
 
 class gMasterUserRegisterResSerializer : public znet::PacketSerializer<gMasterUserRegisterResPacket> {
@@ -395,12 +401,58 @@ public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterUserRegisterResPacket> p, std::shared_ptr<znet::Buffer> b) override {
         b->WriteBool(p->success);
         b->WriteString(p->message);
+        b->WriteString(p->token);
         return b;
     }
     std::shared_ptr<gMasterUserRegisterResPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterUserRegisterResPacket>();
         p->success = b->ReadBool();
         p->message = b->ReadString();
+        p->token = b->ReadString();
+        return p;
+    }
+};
+
+class gMasterUserTokenLoginPacket : public znet::Packet {
+public:
+    gMasterUserTokenLoginPacket() : Packet(PACKET_GIP_MASTER_USER_TOKEN_LOGIN) {}
+    std::string email;
+    std::string token;
+};
+
+class gMasterUserTokenLoginSerializer : public znet::PacketSerializer<gMasterUserTokenLoginPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterUserTokenLoginPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteString(p->email);
+        b->WriteString(p->token);
+        return b;
+    }
+    std::shared_ptr<gMasterUserTokenLoginPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<gMasterUserTokenLoginPacket>();
+        p->email = b->ReadString();
+        p->token = b->ReadString();
+        return p;
+    }
+};
+
+class gMasterUserLogoutPacket : public znet::Packet {
+public:
+    gMasterUserLogoutPacket() : Packet(PACKET_GIP_MASTER_USER_LOGOUT) {}
+    std::string email;
+    std::string token;
+};
+
+class gMasterUserLogoutSerializer : public znet::PacketSerializer<gMasterUserLogoutPacket> {
+public:
+    std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterUserLogoutPacket> p, std::shared_ptr<znet::Buffer> b) override {
+        b->WriteString(p->email);
+        b->WriteString(p->token);
+        return b;
+    }
+    std::shared_ptr<gMasterUserLogoutPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
+        auto p = std::make_shared<gMasterUserLogoutPacket>();
+        p->email = b->ReadString();
+        p->token = b->ReadString();
         return p;
     }
 };

@@ -7,6 +7,9 @@
 #include "master/gMasterPackets.h"
 #include "gipP2PClient.h"
 #include <openssl/sha.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
+#include <fstream>
 #include <sstream>
 #include <iomanip>
 #include "znet/inet_addr.h"
@@ -28,6 +31,82 @@ std::string hashPassword(const std::string& pwd) {
         ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
     }
     return ss.str();
+}
+
+std::string getMachineKeyMaterial() {
+    std::string material = "gipMultiplayer_GameMartyr_SecToken_2026_";
+    const char* user = std::getenv("USERNAME");
+    if (user) material += user;
+    const char* comp = std::getenv("COMPUTERNAME");
+    if (comp) material += comp;
+    const char* prof = std::getenv("USERPROFILE");
+    if (prof) material += prof;
+    const char* homedir = std::getenv("HOME");
+    if (homedir) material += homedir;
+    return material;
+}
+
+std::vector<uint8_t> encryptData(const std::string& plaintext) {
+    uint8_t iv[16];
+    RAND_bytes(iv, sizeof(iv));
+
+    std::string keyMaterial = getMachineKeyMaterial();
+    uint8_t key[32];
+    SHA256(reinterpret_cast<const unsigned char*>(keyMaterial.data()), keyMaterial.size(), key);
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EVP_EncryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
+
+    std::vector<uint8_t> ciphertext(plaintext.size() + 32);
+    int len = 0, ciphertext_len = 0;
+
+    EVP_EncryptUpdate(ctx, ciphertext.data(), &len, reinterpret_cast<const unsigned char*>(plaintext.data()), static_cast<int>(plaintext.size()));
+    ciphertext_len = len;
+
+    EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len);
+    ciphertext_len += len;
+    EVP_CIPHER_CTX_free(ctx);
+
+    ciphertext.resize(ciphertext_len);
+
+    std::vector<uint8_t> out;
+    out.reserve(16 + ciphertext.size());
+    out.insert(out.end(), iv, iv + 16);
+    out.insert(out.end(), ciphertext.begin(), ciphertext.end());
+    return out;
+}
+
+std::string decryptData(const std::vector<uint8_t>& encrypted) {
+    if (encrypted.size() <= 16) return "";
+
+    const uint8_t* iv = encrypted.data();
+    const uint8_t* ciphertext = encrypted.data() + 16;
+    int ciphertext_len = static_cast<int>(encrypted.size()) - 16;
+
+    std::string keyMaterial = getMachineKeyMaterial();
+    uint8_t key[32];
+    SHA256(reinterpret_cast<const unsigned char*>(keyMaterial.data()), keyMaterial.size(), key);
+
+    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EVP_DecryptInit_ex(ctx, EVP_aes_256_cbc(), nullptr, key, iv);
+
+    std::vector<uint8_t> plaintext(ciphertext_len + 32);
+    int len = 0, plaintext_len = 0;
+
+    if (EVP_DecryptUpdate(ctx, plaintext.data(), &len, ciphertext, ciphertext_len) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        return "";
+    }
+    plaintext_len = len;
+
+    if (EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len) != 1) {
+        EVP_CIPHER_CTX_free(ctx);
+        return "";
+    }
+    plaintext_len += len;
+    EVP_CIPHER_CTX_free(ctx);
+
+    return std::string(reinterpret_cast<char*>(plaintext.data()), plaintext_len);
 }
 
 // Splits "host" or "host:port", falling back to the default on anything odd.
@@ -67,6 +146,8 @@ std::shared_ptr<znet::Codec> makeAuthCodec() {
     codec->Add(PACKET_GIP_MASTER_USER_LOGIN_RES, std::make_unique<gMasterUserLoginResSerializer>());
     codec->Add(PACKET_GIP_MASTER_USER_REGISTER, std::make_unique<gMasterUserRegisterSerializer>());
     codec->Add(PACKET_GIP_MASTER_USER_REGISTER_RES, std::make_unique<gMasterUserRegisterResSerializer>());
+    codec->Add(PACKET_GIP_MASTER_USER_TOKEN_LOGIN, std::make_unique<gMasterUserTokenLoginSerializer>());
+    codec->Add(PACKET_GIP_MASTER_USER_LOGOUT, std::make_unique<gMasterUserLogoutSerializer>());
     return codec;
 }
 
@@ -264,6 +345,11 @@ void NetworkManager::kickPlayer(uint32_t playerId) {
     }
 }
 
+int NetworkManager::getPing() const {
+    auto active = getBackend();
+    return active ? active->getPing() : 0;
+}
+
 void NetworkManager::pushQueryResult(const std::string& name, const std::string& format, const std::string& sizeStr,
                                      const std::string& ip, const std::string& realIp, bool isDedicated, bool useP2P) {
     std::lock_guard<std::mutex> lk(queryMutex);
@@ -417,14 +503,37 @@ class MasterAuthHandler : public znet::PacketHandler<MasterAuthHandler, gMasterU
 public:
     MasterAuthHandler(NetworkManager* m) : nm(m) {}
     void OnPacket(std::shared_ptr<gMasterUserLoginResPacket> p) {
-        nm->setAuthResult(p->success ? NetworkManager::AUTH_SUCCESS : NetworkManager::AUTH_FAIL, p->message, p->username);
+        if (p->success) {
+            nm->onAuthSuccess(p->username, p->token);
+            nm->setAuthResult(NetworkManager::AUTH_SUCCESS, p->message, p->username);
+        } else {
+            nm->setAuthResult(NetworkManager::AUTH_FAIL, p->message);
+        }
     }
     void OnPacket(std::shared_ptr<gMasterUserRegisterResPacket> p) {
-        nm->setAuthResult(p->success ? NetworkManager::AUTH_SUCCESS : NetworkManager::AUTH_FAIL, p->message);
+        if (p->success) {
+            if (!p->token.empty()) {
+                nm->onAuthSuccess("", p->token);
+            }
+            nm->setAuthResult(NetworkManager::AUTH_SUCCESS, p->message);
+        } else {
+            nm->setAuthResult(NetworkManager::AUTH_FAIL, p->message);
+        }
     }
 private:
     NetworkManager* nm;
 };
+
+void NetworkManager::onAuthSuccess(const std::string& username, const std::string& token) {
+    std::lock_guard<std::mutex> lk(authMutex);
+    if (!username.empty()) authUsername = username;
+    if (!token.empty()) {
+        sessionToken = token;
+        if (!sessionEmail.empty()) {
+            saveSession(sessionEmail, sessionToken);
+        }
+    }
+}
 
 // Both auth calls are the same request/reply against the master, so they share
 // one thread body and differ only in the packet they send.
@@ -464,6 +573,10 @@ void NetworkManager::runAuthRequest(const std::string& pendingMessage, std::func
 }
 
 void NetworkManager::loginUser(const std::string& email, const std::string& password) {
+    {
+        std::lock_guard<std::mutex> lk(authMutex);
+        sessionEmail = email;
+    }
     const std::string hashed = hashPassword(password);
     runAuthRequest("Logging in...", [email, hashed]() {
         auto req = std::make_shared<gMasterUserLoginPacket>();
@@ -473,7 +586,26 @@ void NetworkManager::loginUser(const std::string& email, const std::string& pass
     });
 }
 
+void NetworkManager::loginWithToken(const std::string& email, const std::string& token) {
+    {
+        std::lock_guard<std::mutex> lk(authMutex);
+        sessionEmail = email;
+        sessionToken = token;
+    }
+    runAuthRequest("Logging in...", [email, token]() {
+        auto req = std::make_shared<gMasterUserTokenLoginPacket>();
+        req->email = email;
+        req->token = token;
+        return req;
+    });
+}
+
 void NetworkManager::registerUser(const std::string& username, const std::string& email, const std::string& password) {
+    {
+        std::lock_guard<std::mutex> lk(authMutex);
+        sessionEmail = email;
+        authUsername = username;
+    }
     const std::string hashed = hashPassword(password);
     runAuthRequest("Registering...", [username, email, hashed]() {
         auto req = std::make_shared<gMasterUserRegisterPacket>();
@@ -482,4 +614,91 @@ void NetworkManager::registerUser(const std::string& username, const std::string
         req->password = hashed;
         return req;
     });
+}
+
+void NetworkManager::logoutUser() {
+    std::string email;
+    std::string token;
+    {
+        std::lock_guard<std::mutex> lk(authMutex);
+        email = sessionEmail;
+        token = sessionToken;
+        authUsername.clear();
+        sessionEmail.clear();
+        sessionToken.clear();
+    }
+    clearSession();
+    clearAuthStatus();
+
+    if (!token.empty()) {
+        std::thread([email, token]() {
+            auto client = std::make_shared<znet::Client>(znet::ClientConfig{MASTER_IP, MASTER_PORT, std::chrono::seconds(2), znet::ConnectionType::TCP});
+            client->SetEventCallback([email, token](znet::Event& ev) {
+                znet::EventDispatcher d{ev};
+                d.Dispatch<znet::ClientConnectedToServerEvent>([email, token](znet::ClientConnectedToServerEvent& e) {
+                    auto sess = e.session();
+                    sess->SetCodec(makeAuthCodec());
+                    auto req = std::make_shared<gMasterUserLogoutPacket>();
+                    req->email = email;
+                    req->token = token;
+                    sess->SendPacket(req);
+                    return false;
+                });
+            });
+            client->Bind();
+            client->Connect();
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            client->Disconnect();
+        }).detach();
+    }
+}
+
+void NetworkManager::saveSession(const std::string& email, const std::string& sessionToken) {
+    std::string payload = email + "\n" + sessionToken;
+    std::vector<uint8_t> encrypted = encryptData(payload);
+
+    std::ofstream file("saved_auth.dat", std::ios::binary);
+    if (file.is_open()) {
+        file.write(reinterpret_cast<const char*>(encrypted.data()), encrypted.size());
+        file.close();
+    }
+}
+
+bool NetworkManager::loadSession(std::string& outEmail, std::string& outSessionToken) {
+    std::ifstream file("saved_auth.dat", std::ios::binary | std::ios::ate);
+    if (!file.is_open()) return false;
+
+    std::streamsize size = file.tellg();
+    if (size <= 16) return false;
+    file.seekg(0, std::ios::beg);
+
+    std::vector<uint8_t> buffer(size);
+    if (!file.read(reinterpret_cast<char*>(buffer.data()), size)) return false;
+    file.close();
+
+    std::string decrypted = decryptData(buffer);
+    if (decrypted.empty()) return false;
+
+    size_t newline = decrypted.find('\n');
+    if (newline == std::string::npos) return false;
+
+    outEmail = decrypted.substr(0, newline);
+    outSessionToken = decrypted.substr(newline + 1);
+    return !outEmail.empty() && !outSessionToken.empty();
+}
+
+void NetworkManager::clearSession() {
+    std::remove("saved_auth.dat");
+}
+
+bool NetworkManager::hasSavedSession() const {
+    std::ifstream file("saved_auth.dat", std::ios::binary);
+    return file.is_open();
+}
+
+void NetworkManager::autoLogin() {
+    std::string email, token;
+    if (loadSession(email, token)) {
+        loginWithToken(email, token);
+    }
 }
