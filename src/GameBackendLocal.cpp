@@ -202,6 +202,7 @@ void GameBackendLocal::start() {
 	queryServer->Listen();
 
 	if (!isDedicatedServer) {
+		initializeVoice();
 		voiceRouter.addPeer(LOCAL_HOST_VOICE_CONN_ID, [this](const std::shared_ptr<znet::Packet>& p, const znet::SendOptions&) {
 			if (auto down = std::dynamic_pointer_cast<gTeamVoiceDownlinkPacket>(p)) {
 				voiceClient.handleVoicePacket(*down);

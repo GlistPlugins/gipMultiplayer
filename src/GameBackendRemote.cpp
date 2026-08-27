@@ -103,6 +103,7 @@ GameBackendRemote::~GameBackendRemote() {
 }
 
 void GameBackendRemote::start() {
+	initializeVoice();
 	// A punched session arrives already handshaken, so it only needs wiring up.
 	if (session) {
 		adoptSession(session);
@@ -147,6 +148,7 @@ void GameBackendRemote::sendPacket(std::shared_ptr<znet::Packet> packet) {
 void GameBackendRemote::adoptSession(const std::shared_ptr<znet::PeerSession>& sess) {
 	sess->SetCodec(makeCodec());
 	sess->SetHandler(std::make_shared<ClientPacketHandler>(this));
+	initializeVoice();
 
 	std::vector<std::shared_ptr<znet::Packet>> queued;
 	{

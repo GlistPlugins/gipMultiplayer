@@ -381,7 +381,9 @@ void NetworkManager::handleVoiceKeyDown() {
     VoiceChatMode mode = voiceMode.load(std::memory_order_acquire);
     if (mode == VOICE_MODE_OFF) return;
     if (mode == VOICE_MODE_PUSH_TO_TALK) {
-        startVoiceTransmission();
+        if (!isVoiceTransmitting()) {
+            startVoiceTransmission();
+        }
     } else if (mode == VOICE_MODE_TOGGLE) {
         if (isVoiceTransmitting()) {
             stopVoiceTransmission();
@@ -394,7 +396,9 @@ void NetworkManager::handleVoiceKeyDown() {
 void NetworkManager::handleVoiceKeyUp() {
     VoiceChatMode mode = voiceMode.load(std::memory_order_acquire);
     if (mode == VOICE_MODE_PUSH_TO_TALK) {
-        stopVoiceTransmission();
+        if (isVoiceTransmitting()) {
+            stopVoiceTransmission();
+        }
     }
 }
 

@@ -150,11 +150,13 @@ bool gTeamVoice::isEnabled() const {
 }
 
 void gTeamVoice::startTransmitting() {
+	if (isTransmitting()) return;
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	if (isEnabled()) state->processor.setTransmitting(true);
 }
 
 void gTeamVoice::stopTransmitting() {
+	if (!isTransmitting()) return;
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	state->processor.setTransmitting(false);
 }
