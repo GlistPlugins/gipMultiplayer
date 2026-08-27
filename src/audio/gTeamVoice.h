@@ -55,6 +55,7 @@ public:
 	void resetSession();
 
 	std::size_t updateNetwork(znet::PeerSession& session);
+	std::size_t updateNetwork(const std::function<bool(const gTeamVoiceUplinkPacket&)>& sendCallback);
 
 	Stats getStats() const;
 	std::vector<gVoiceAudioProcessor::SpeakerStats> getSpeakerStats() const;

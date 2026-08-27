@@ -1,11 +1,15 @@
 #include "GameBackendRemote.h"
+#include "voice/gTeamVoicePackets.h"
 #include <memory>
 
 // Handles packets arriving from the server.
 // The server broadcasts other clients' positions to us as NodeStatePackets,
 // and notifies us when a client leaves via NodeLeavePacket.
 // Both are enqueued for the main thread to process in GameBackend::update().
-class ClientPacketHandler : public znet::PacketHandler<ClientPacketHandler, NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket, LobbyStatePacket, StartMatchPacket, LobbyKickPacket, KeepAlivePacket, PingPacket, PongPacket> {
+class ClientPacketHandler : public znet::PacketHandler<ClientPacketHandler,
+	NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket,
+	LobbyStatePacket, StartMatchPacket, LobbyKickPacket, KeepAlivePacket, PingPacket, PongPacket,
+	gTeamVoiceSessionPacket, gTeamVoiceDownlinkPacket> {
 public:
 	ClientPacketHandler(GameBackendRemote* b) : backend(b) {}
 
@@ -30,6 +34,14 @@ public:
 	}
 	void OnPacket(std::shared_ptr<PongPacket> p) {
 		backend->onPongReceived(p->timestamp);
+	}
+
+	// Voice callbacks
+	void OnPacket(std::shared_ptr<gTeamVoiceSessionPacket> p) {
+		backend->handleVoiceSessionPacket(*p);
+	}
+	void OnPacket(std::shared_ptr<gTeamVoiceDownlinkPacket> p) {
+		backend->handleVoiceDownlinkPacket(*p);
 	}
 
 	void OnUnknown(std::shared_ptr<znet::Packet>) {}
@@ -58,6 +70,11 @@ static std::shared_ptr<znet::Codec> makeCodec() {
 	codec->Add(PACKET_KEEPALIVE, std::make_unique<KeepAliveSerializer>());
 	codec->Add(PACKET_PING, std::make_unique<PingSerializer>());
 	codec->Add(PACKET_PONG, std::make_unique<PongSerializer>());
+
+	// Voice Packets
+	codec->Add(G_TEAM_VOICE_SESSION_PACKET_ID, std::make_unique<gTeamVoiceSessionSerializer>());
+	codec->Add(G_TEAM_VOICE_UPLINK_PACKET_ID, std::make_unique<gTeamVoiceUplinkSerializer>());
+	codec->Add(G_TEAM_VOICE_DOWNLINK_PACKET_ID, std::make_unique<gTeamVoiceDownlinkSerializer>());
 	
 	return codec;
 }
@@ -205,4 +222,86 @@ void GameBackendRemote::broadcastKillEvent(uint32_t killerId, uint32_t victimId)
 	p->victimId = victimId;
 	std::lock_guard<std::mutex> lk(sessionmutex);
 	if (session) { session->SendPacket(p); }
+}
+
+void GameBackendRemote::update(float deltaTime) {
+	GameBackend::update(deltaTime);
+
+	std::shared_ptr<znet::PeerSession> currentSession;
+	{
+		std::lock_guard<std::mutex> lk(sessionmutex);
+		currentSession = session;
+	}
+	if (currentSession && currentSession->IsAlive()) {
+		voiceClient.updateNetwork(*currentSession);
+	}
+}
+
+bool GameBackendRemote::initializeVoice() {
+	if (voiceClient.isInitialized()) return true;
+	std::thread([this]() {
+		voiceClient.initialize();
+	}).detach();
+	return true;
+}
+
+void GameBackendRemote::shutdownVoice() {
+	voiceClient.shutdown();
+}
+
+void GameBackendRemote::startVoiceTransmission() {
+	if (!voiceClient.isInitialized()) {
+		initializeVoice();
+	}
+	voiceClient.startTransmitting();
+}
+
+void GameBackendRemote::stopVoiceTransmission() {
+	voiceClient.stopTransmitting();
+}
+
+bool GameBackendRemote::isVoiceTransmitting() const {
+	return voiceClient.isTransmitting();
+}
+
+bool GameBackendRemote::isPlayerTalking(uint32_t playerId) const {
+	auto stats = voiceClient.getSpeakerStats();
+	for (const auto& s : stats) {
+		if (s.speakerid == playerId && s.jitterdepth > 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void GameBackendRemote::setSpeakerMuted(uint32_t playerId, bool muted) {
+	voiceClient.setSpeakerMuted(playerId, muted);
+}
+
+void GameBackendRemote::setSpeakerVolume(uint32_t playerId, float volume) {
+	voiceClient.setSpeakerVolume(playerId, volume);
+}
+
+void GameBackendRemote::setVoiceEnabled(bool enabled) {
+	voiceClient.setEnabled(enabled);
+}
+
+bool GameBackendRemote::isVoiceEnabled() const {
+	return voiceClient.isEnabled();
+}
+
+void GameBackendRemote::setHearEnemiesVoice(bool hear) {
+	// Remote clients have routing controlled by the host, but can also filter locally
+}
+
+bool GameBackendRemote::canHearEnemiesVoice() const {
+	return false;
+}
+
+void GameBackendRemote::handleVoiceSessionPacket(const gTeamVoiceSessionPacket& p) {
+	voiceClient.handleSessionPacket(p);
+}
+
+void GameBackendRemote::handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& p) {
+	voiceClient.handleVoicePacket(p);
 }

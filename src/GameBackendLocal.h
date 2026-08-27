@@ -9,6 +9,8 @@
 #pragma once
 
 #include "GameBackend.h"
+#include "audio/gTeamVoice.h"
+#include "voice/gTeamVoiceServer.h"
 #include "master/gMasterPackets.h"
 #include "znet/p2p.h"
 
@@ -24,6 +26,25 @@ public:
 	bool isServer() const override { return true; }
 	void sendPacket(std::shared_ptr<znet::Packet> packet) override;
 	void kickPlayer(uint32_t playerId) override;
+
+	// Voice Chat Interface
+	bool initializeVoice() override;
+	void shutdownVoice() override;
+	void startVoiceTransmission() override;
+	void stopVoiceTransmission() override;
+	bool isVoiceTransmitting() const override;
+	bool isPlayerTalking(uint32_t playerId) const override;
+	void setSpeakerMuted(uint32_t playerId, bool muted) override;
+	void setSpeakerVolume(uint32_t playerId, float volume) override;
+	void setVoiceEnabled(bool enabled) override;
+	bool isVoiceEnabled() const override;
+	void setHearEnemiesVoice(bool hear) override;
+	bool canHearEnemiesVoice() const override;
+
+	void handleVoiceUplinkPacket(gTeamVoiceServer::ConnectionId connId, const gTeamVoiceUplinkPacket& p);
+	void handleVoiceSessionPacket(const gTeamVoiceSessionPacket& p);
+	void handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& p);
+	void syncVoicePeerStates();
 
 protected:
 	void broadcastState(uint32_t netid, float x, float y, float z, float yaw, uint8_t team, uint8_t animState) override;
@@ -91,4 +112,10 @@ protected:
 
 	mutable std::mutex roomCodeMutex;
 	std::string assignedRoomCode;
+
+	// Voice Chat Subsystems
+	gTeamVoiceServer voiceRouter;
+	gTeamVoice voiceClient;
+	uint64_t voiceSessionId = 0;
+	bool isDedicatedServer = false;
 };

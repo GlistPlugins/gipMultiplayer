@@ -40,11 +40,6 @@ public:
 
 		ma_device* enginedevice = ma_engine_get_device(gGetSoundEngine());
 		ma_context* context = enginedevice == nullptr ? nullptr : ma_device_get_context(enginedevice);
-		if (context == nullptr) {
-			lasterror = "Could not access the GlistEngine audio context";
-			processor.stop();
-			return false;
-		}
 
 		ma_device_config config = ma_device_config_init(ma_device_type_duplex);
 		config.capture.format = ma_format_s16;
@@ -57,6 +52,9 @@ public:
 		config.notificationCallback = notificationCallback;
 		config.pUserData = this;
 		ma_result result = ma_device_init(context, &config, &device);
+		if (result != MA_SUCCESS && context != nullptr) {
+			result = ma_device_init(nullptr, &config, &device);
+		}
 		if (result != MA_SUCCESS) {
 			lasterror = ma_result_description(result);
 			processor.stop();
@@ -213,18 +211,16 @@ void gTeamVoice::resetSession() {
 	state->processor.clearSession();
 }
 
-std::size_t gTeamVoice::updateNetwork(znet::PeerSession& session) {
+std::size_t gTeamVoice::updateNetwork(const std::function<bool(const gTeamVoiceUplinkPacket&)>& sendCallback) {
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	if (!state->initialized.load(std::memory_order_acquire) ||
-			!state->enabled.load(std::memory_order_acquire) || !session.IsAlive() ||
-			session.connection_type() != znet::ConnectionType::ZDT) {
+			!state->enabled.load(std::memory_order_acquire)) {
 		return 0;
 	}
 	std::size_t sent = 0;
 	gTeamVoiceUplinkPacket packet;
 	while (state->processor.popOutgoingPacket(packet)) {
-		auto outgoing = std::make_shared<gTeamVoiceUplinkPacket>(packet);
-		if (session.SendPacket(outgoing, gGetTeamVoiceDataSendOptions()) == znet::Result::Success) {
+		if (sendCallback && sendCallback(packet)) {
 			state->sentpackets.fetch_add(1, std::memory_order_relaxed);
 			state->sentbytes.fetch_add(packet.payload.size(), std::memory_order_relaxed);
 			sent++;
@@ -233,6 +229,16 @@ std::size_t gTeamVoice::updateNetwork(znet::PeerSession& session) {
 		}
 	}
 	return sent;
+}
+
+std::size_t gTeamVoice::updateNetwork(znet::PeerSession& session) {
+	if (!session.IsAlive() || session.connection_type() != znet::ConnectionType::ZDT) {
+		return 0;
+	}
+	return updateNetwork([&session](const gTeamVoiceUplinkPacket& packet) {
+		auto outgoing = std::make_shared<gTeamVoiceUplinkPacket>(packet);
+		return session.SendPacket(outgoing, gGetTeamVoiceDataSendOptions()) == znet::Result::Success;
+	});
 }
 
 gTeamVoice::Stats gTeamVoice::getStats() const {

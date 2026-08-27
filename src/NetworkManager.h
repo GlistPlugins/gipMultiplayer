@@ -52,6 +52,31 @@ public:
 
     int getPing() const;
 
+    // Voice Chat Controls & Modes
+    enum VoiceChatMode {
+        VOICE_MODE_OFF = 0,
+        VOICE_MODE_TOGGLE = 1,
+        VOICE_MODE_PUSH_TO_TALK = 2
+    };
+
+    void setVoiceMode(VoiceChatMode mode);
+    VoiceChatMode getVoiceMode() const { return voiceMode; }
+
+    void setHearEnemiesVoice(bool hear);
+    bool canHearEnemiesVoice() const;
+
+    void handleVoiceKeyDown();
+    void handleVoiceKeyUp();
+
+    void startVoiceTransmission();
+    void stopVoiceTransmission();
+    bool isVoiceTransmitting() const;
+    bool isPlayerTalking(uint32_t playerId) const;
+    void setPlayerVoiceMuted(uint32_t playerId, bool muted);
+    void setPlayerVoiceVolume(uint32_t playerId, float volume);
+
+    std::string getPlayerName(uint32_t netId) const;
+
     // Callbacks for UI
     void setOnServerQueried(std::function<void(std::string, std::string, std::string, std::string, std::string, bool, bool)> cb) { onServerQueried = cb; }
     void setOnLobbyStateUpdated(std::function<void(std::shared_ptr<LobbyStatePacket>)> cb) { onLobbyStateUpdated = cb; }
@@ -144,4 +169,6 @@ private:
     bool hostMode = false;
     uint8_t lobbyTeamSize = 2;
     std::string localPlayerName;
+    std::atomic<VoiceChatMode> voiceMode{VOICE_MODE_PUSH_TO_TALK};
+    std::atomic<bool> hearEnemiesVoice{false};
 };

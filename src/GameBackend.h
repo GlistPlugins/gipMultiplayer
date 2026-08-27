@@ -122,6 +122,20 @@ public:
 	int getPing() const { return currentPing.load(std::memory_order_relaxed); }
 	void onPongReceived(uint64_t timestamp);
 
+	// Voice Chat Interface
+	virtual bool initializeVoice() { return false; }
+	virtual void shutdownVoice() {}
+	virtual void startVoiceTransmission() {}
+	virtual void stopVoiceTransmission() {}
+	virtual bool isVoiceTransmitting() const { return false; }
+	virtual bool isPlayerTalking(uint32_t playerId) const { return false; }
+	virtual void setSpeakerMuted(uint32_t playerId, bool muted) {}
+	virtual void setSpeakerVolume(uint32_t playerId, float volume) {}
+	virtual void setVoiceEnabled(bool enabled) {}
+	virtual bool isVoiceEnabled() const { return true; }
+	virtual void setHearEnemiesVoice(bool hear) {}
+	virtual bool canHearEnemiesVoice() const { return false; }
+
 protected:
 	GameBackend();
 
