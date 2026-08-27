@@ -365,6 +365,22 @@ void NetworkManager::setVoiceMode(VoiceChatMode mode) {
     }
 }
 
+void NetworkManager::setProximityChatEnabled(bool enabled) {
+    proximityChatEnabled.store(enabled, std::memory_order_release);
+    setHearEnemiesVoice(enabled);
+}
+
+float NetworkManager::calculateProximityVolume(float distance) const {
+    if (!isProximityChatEnabled()) return 1.0f;
+    float fullDist = getProximityFullVolumeDistance();
+    float maxDist = getProximityMaxDistance();
+    if (distance <= fullDist) return 1.0f;
+    if (distance >= maxDist) return 0.0f;
+    float t = (distance - fullDist) / (maxDist - fullDist);
+    float factor = 1.0f - t;
+    return factor * factor;
+}
+
 void NetworkManager::setHearEnemiesVoice(bool hear) {
     hearEnemiesVoice.store(hear, std::memory_order_release);
     auto active = getBackend();
@@ -437,6 +453,72 @@ void NetworkManager::setPlayerVoiceVolume(uint32_t playerId, float volume) {
     auto active = getBackend();
     if (active) {
         active->setSpeakerVolume(playerId, volume);
+    }
+}
+
+void NetworkManager::setMicrophoneVolume(int volume) {
+    auto active = getBackend();
+    if (active) {
+        active->setMicrophoneVolume(volume);
+    }
+}
+
+int NetworkManager::getMicrophoneVolume() const {
+    auto active = getBackend();
+    return active ? active->getMicrophoneVolume() : 100;
+}
+
+void NetworkManager::setVoicePlaybackVolume(int volume) {
+    auto active = getBackend();
+    if (active) {
+        active->setVoicePlaybackVolume(volume);
+    }
+}
+
+int NetworkManager::getVoicePlaybackVolume() const {
+    auto active = getBackend();
+    return active ? active->getVoicePlaybackVolume() : 100;
+}
+
+std::vector<std::string> NetworkManager::getCaptureDeviceNames() {
+    auto active = getBackend();
+    if (active) {
+        return active->getCaptureDeviceNames();
+    }
+    gTeamVoice dummyVoice;
+    return dummyVoice.getCaptureDeviceNames();
+}
+
+int NetworkManager::getCaptureDeviceIndex() const {
+    auto active = getBackend();
+    return active ? active->getCaptureDeviceIndex() : 0;
+}
+
+void NetworkManager::setCaptureDeviceIndex(int index) {
+    auto active = getBackend();
+    if (active) {
+        active->setCaptureDeviceIndex(index);
+    }
+}
+
+std::vector<std::string> NetworkManager::getPlaybackDeviceNames() {
+    auto active = getBackend();
+    if (active) {
+        return active->getPlaybackDeviceNames();
+    }
+    gTeamVoice dummyVoice;
+    return dummyVoice.getPlaybackDeviceNames();
+}
+
+int NetworkManager::getPlaybackDeviceIndex() const {
+    auto active = getBackend();
+    return active ? active->getPlaybackDeviceIndex() : 0;
+}
+
+void NetworkManager::setPlaybackDeviceIndex(int index) {
+    auto active = getBackend();
+    if (active) {
+        active->setPlaybackDeviceIndex(index);
     }
 }
 

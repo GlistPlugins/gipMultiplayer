@@ -136,6 +136,19 @@ public:
 	virtual void setHearEnemiesVoice(bool hear) {}
 	virtual bool canHearEnemiesVoice() const { return false; }
 
+	virtual void setMicrophoneVolume(int volume) {}
+	virtual int getMicrophoneVolume() const { return 100; }
+	virtual void setVoicePlaybackVolume(int volume) {}
+	virtual int getVoicePlaybackVolume() const { return 100; }
+
+	virtual std::vector<std::string> getCaptureDeviceNames() { return {"Varsayilan"}; }
+	virtual int getCaptureDeviceIndex() const { return 0; }
+	virtual void setCaptureDeviceIndex(int index) {}
+
+	virtual std::vector<std::string> getPlaybackDeviceNames() { return {"Varsayilan"}; }
+	virtual int getPlaybackDeviceIndex() const { return 0; }
+	virtual void setPlaybackDeviceIndex(int index) {}
+
 protected:
 	GameBackend();
 

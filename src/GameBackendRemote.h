@@ -37,6 +37,19 @@ public:
 	void setHearEnemiesVoice(bool hear) override;
 	bool canHearEnemiesVoice() const override;
 
+	void setMicrophoneVolume(int volume) override { voiceClient.setMicrophoneVolume(volume); }
+	int getMicrophoneVolume() const override { return voiceClient.getMicrophoneVolume(); }
+	void setVoicePlaybackVolume(int volume) override { voiceClient.setPlaybackVolume(volume); }
+	int getVoicePlaybackVolume() const override { return voiceClient.getPlaybackVolume(); }
+
+	std::vector<std::string> getCaptureDeviceNames() override { return voiceClient.getCaptureDeviceNames(); }
+	int getCaptureDeviceIndex() const override { return voiceClient.getCaptureDeviceIndex(); }
+	void setCaptureDeviceIndex(int index) override { voiceClient.setCaptureDeviceIndex(index); }
+
+	std::vector<std::string> getPlaybackDeviceNames() override { return voiceClient.getPlaybackDeviceNames(); }
+	int getPlaybackDeviceIndex() const override { return voiceClient.getPlaybackDeviceIndex(); }
+	void setPlaybackDeviceIndex(int index) override { voiceClient.setPlaybackDeviceIndex(index); }
+
 	void handleVoiceSessionPacket(const gTeamVoiceSessionPacket& p);
 	void handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& p);
 

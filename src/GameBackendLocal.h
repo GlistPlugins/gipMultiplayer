@@ -41,6 +41,19 @@ public:
 	void setHearEnemiesVoice(bool hear) override;
 	bool canHearEnemiesVoice() const override;
 
+	void setMicrophoneVolume(int volume) override { if (!isDedicatedServer) voiceClient.setMicrophoneVolume(volume); }
+	int getMicrophoneVolume() const override { return isDedicatedServer ? 100 : voiceClient.getMicrophoneVolume(); }
+	void setVoicePlaybackVolume(int volume) override { if (!isDedicatedServer) voiceClient.setPlaybackVolume(volume); }
+	int getVoicePlaybackVolume() const override { return isDedicatedServer ? 100 : voiceClient.getPlaybackVolume(); }
+
+	std::vector<std::string> getCaptureDeviceNames() override { return isDedicatedServer ? std::vector<std::string>{"Varsayilan"} : voiceClient.getCaptureDeviceNames(); }
+	int getCaptureDeviceIndex() const override { return isDedicatedServer ? 0 : voiceClient.getCaptureDeviceIndex(); }
+	void setCaptureDeviceIndex(int index) override { if (!isDedicatedServer) voiceClient.setCaptureDeviceIndex(index); }
+
+	std::vector<std::string> getPlaybackDeviceNames() override { return isDedicatedServer ? std::vector<std::string>{"Varsayilan"} : voiceClient.getPlaybackDeviceNames(); }
+	int getPlaybackDeviceIndex() const override { return isDedicatedServer ? 0 : voiceClient.getPlaybackDeviceIndex(); }
+	void setPlaybackDeviceIndex(int index) override { if (!isDedicatedServer) voiceClient.setPlaybackDeviceIndex(index); }
+
 	void handleVoiceUplinkPacket(gTeamVoiceServer::ConnectionId connId, const gTeamVoiceUplinkPacket& p);
 	void handleVoiceSessionPacket(const gTeamVoiceSessionPacket& p);
 	void handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& p);

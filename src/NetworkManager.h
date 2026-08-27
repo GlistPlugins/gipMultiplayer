@@ -62,6 +62,12 @@ public:
     void setVoiceMode(VoiceChatMode mode);
     VoiceChatMode getVoiceMode() const { return voiceMode; }
 
+    void setProximityChatEnabled(bool enabled);
+    bool isProximityChatEnabled() const { return proximityChatEnabled.load(std::memory_order_acquire); }
+    float getProximityMaxDistance() const { return 12.0f; }
+    float getProximityFullVolumeDistance() const { return 1.2f; }
+    float calculateProximityVolume(float distance) const;
+
     void setHearEnemiesVoice(bool hear);
     bool canHearEnemiesVoice() const;
 
@@ -74,6 +80,19 @@ public:
     bool isPlayerTalking(uint32_t playerId) const;
     void setPlayerVoiceMuted(uint32_t playerId, bool muted);
     void setPlayerVoiceVolume(uint32_t playerId, float volume);
+
+    void setMicrophoneVolume(int volume);
+    int getMicrophoneVolume() const;
+    void setVoicePlaybackVolume(int volume);
+    int getVoicePlaybackVolume() const;
+
+    std::vector<std::string> getCaptureDeviceNames();
+    int getCaptureDeviceIndex() const;
+    void setCaptureDeviceIndex(int index);
+
+    std::vector<std::string> getPlaybackDeviceNames();
+    int getPlaybackDeviceIndex() const;
+    void setPlaybackDeviceIndex(int index);
 
     std::string getPlayerName(uint32_t netId) const;
 
@@ -171,4 +190,5 @@ private:
     std::string localPlayerName;
     std::atomic<VoiceChatMode> voiceMode{VOICE_MODE_PUSH_TO_TALK};
     std::atomic<bool> hearEnemiesVoice{false};
+    std::atomic<bool> proximityChatEnabled{true};
 };

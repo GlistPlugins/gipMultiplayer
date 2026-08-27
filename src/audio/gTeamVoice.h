@@ -49,6 +49,19 @@ public:
 	bool setSpeakerMuted(std::uint64_t speakerid, bool muted);
 	bool setSpeakerVolume(std::uint64_t speakerid, float volume);
 
+	void setMicrophoneVolume(int volume);
+	int getMicrophoneVolume() const;
+	void setPlaybackVolume(int volume);
+	int getPlaybackVolume() const;
+
+	std::vector<std::string> getCaptureDeviceNames();
+	int getCaptureDeviceIndex() const;
+	void setCaptureDeviceIndex(int index);
+
+	std::vector<std::string> getPlaybackDeviceNames();
+	int getPlaybackDeviceIndex() const;
+	void setPlaybackDeviceIndex(int index);
+
 	void handleSessionPacket(const gTeamVoiceSessionPacket& packet);
 	void handleVoicePacket(const gTeamVoiceDownlinkPacket& packet);
 	void reportMalformedPacket(gTeamVoicePacketError error = gTeamVoicePacketError::BUFFER_ERROR);
