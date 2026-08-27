@@ -18,6 +18,8 @@
 #include <sstream>
 #include <iomanip>
 #include <openssl/sha.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
 
 #include "sqlite3.h"
 
@@ -62,26 +64,10 @@ std::string JoinCandidates(const std::vector<std::string>& candidates) {
     return out;
 }
 
-std::string GenerateSecureSessionToken() {
-    uint8_t randomBytes[32];
-    static thread_local std::mt19937_64 rng(std::random_device{}());
-    std::uniform_int_distribution<uint64_t> dist;
-    for (int i = 0; i < 4; ++i) {
-        uint64_t val = dist(rng);
-        std::memcpy(randomBytes + i * 8, &val, 8);
-    }
-    std::stringstream ss;
-    for (int i = 0; i < 32; ++i) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(randomBytes[i]);
-    }
-    return ss.str();
-}
-
-std::string GenerateRandomSalt(size_t numBytes = 16) {
+// Cryptographically secure random bytes via OpenSSL
+std::string GenerateSecureRandomHex(size_t numBytes) {
     std::vector<uint8_t> bytes(numBytes);
-    static thread_local std::mt19937_64 rng(std::random_device{}());
-    std::uniform_int_distribution<uint16_t> dist(0, 255);
-    for (size_t i = 0; i < numBytes; ++i) bytes[i] = static_cast<uint8_t>(dist(rng));
+    RAND_bytes(bytes.data(), static_cast<int>(numBytes));
     std::stringstream ss;
     for (size_t i = 0; i < numBytes; ++i) {
         ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(bytes[i]);
@@ -89,6 +75,54 @@ std::string GenerateRandomSalt(size_t numBytes = 16) {
     return ss.str();
 }
 
+std::string GenerateSecureSessionToken() {
+    return GenerateSecureRandomHex(32); // 256-bit token
+}
+
+std::string GenerateRandomSalt(size_t numBytes = 16) {
+    return GenerateSecureRandomHex(numBytes); // 128-bit salt
+}
+
+// Industry-Standard Slow Password Hashing: PBKDF2-HMAC-SHA256 with 600,000 iterations (OWASP standard)
+constexpr int PBKDF2_ITERATIONS = 600000;
+
+std::string HashPasswordPBKDF2(const std::string& password, const std::string& saltHex) {
+    unsigned char hash[32];
+    std::vector<uint8_t> saltBytes;
+    saltBytes.reserve(saltHex.length() / 2);
+    for (size_t i = 0; i + 1 < saltHex.length(); i += 2) {
+        std::string byteString = saltHex.substr(i, 2);
+        uint8_t byte = static_cast<uint8_t>(std::strtol(byteString.c_str(), nullptr, 16));
+        saltBytes.push_back(byte);
+    }
+    if (saltBytes.empty()) {
+        saltBytes.resize(16, 0);
+    }
+
+    PKCS5_PBKDF2_HMAC(password.c_str(), static_cast<int>(password.length()),
+                      saltBytes.data(), static_cast<int>(saltBytes.size()),
+                      PBKDF2_ITERATIONS, EVP_sha256(),
+                      sizeof(hash), hash);
+
+    std::stringstream ss;
+    for (int i = 0; i < 32; ++i) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
+    return ss.str();
+}
+
+// Token-at-Rest Protection: Hash session tokens in the database
+std::string HashSessionToken(const std::string& rawToken) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(rawToken.c_str()), rawToken.size(), hash);
+    std::stringstream ss;
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i) {
+        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
+    }
+    return ss.str();
+}
+
+// Backward-compatibility legacy fallback
 std::string HashPasswordWithSalt(const std::string& clientHash, const std::string& salt) {
     std::string combined = clientHash + ":" + salt;
     unsigned char hash[SHA256_DIGEST_LENGTH];
@@ -98,6 +132,13 @@ std::string HashPasswordWithSalt(const std::string& clientHash, const std::strin
         ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
     }
     return ss.str();
+}
+
+void PruneExpiredSessions(sqlite3* db) {
+    if (!db) return;
+    // Expire sessions inactive for more than 30 days
+    const char* pruneSql = "DELETE FROM SESSIONS WHERE last_used < datetime('now', '-30 days');";
+    sqlite3_exec(db, pruneSql, 0, 0, nullptr);
 }
 
 struct IpRateLimit {
@@ -430,10 +471,10 @@ public:
 
         // Bound, never concatenated: these strings come off the wire.
         std::string salt = GenerateRandomSalt(16);
-        std::string saltedPassword = HashPasswordWithSalt(p->password, salt);
+        std::string pbkdf2Password = HashPasswordPBKDF2(p->password, salt);
 
         sqlite3_stmt* stmt = nullptr;
-        const char* sql = "INSERT INTO USERS (username, email, password, salt) VALUES (?, ?, ?, ?);";
+        const char* sql = "INSERT INTO USERS (username, email, password, salt, algo) VALUES (?, ?, ?, ?, 'pbkdf2');";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
             res->success = false;
             res->message = "Database error.";
@@ -442,7 +483,7 @@ public:
         }
         sqlite3_bind_text(stmt, 1, p->username.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 2, email.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 3, saltedPassword.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, pbkdf2Password.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 4, salt.c_str(), -1, SQLITE_TRANSIENT);
 
         const int rc = sqlite3_step(stmt);
@@ -454,7 +495,7 @@ public:
             res->success = true;
             res->message = "Registration successful!";
             res->token = token;
-            std::cout << "[MasterServer] Registered new user: " << p->username << " (" << email << ") with salted hash." << std::endl;
+            std::cout << "[MasterServer] Registered new user: " << p->username << " (" << email << ") with PBKDF2-HMAC-SHA256." << std::endl;
         } else if (rc == SQLITE_CONSTRAINT) {
             res->success = false;
             res->message = "Username or Email already exists.";
@@ -468,15 +509,17 @@ public:
 
     std::string CreateSessionForUser(int64_t userId) {
         if (!db || userId <= 0) return "";
-        std::string token = GenerateSecureSessionToken();
+        std::string rawToken = GenerateSecureSessionToken();
+        std::string tokenHash = HashSessionToken(rawToken);
+
         sqlite3_stmt* stmt = nullptr;
-        const char* sql = "INSERT INTO SESSIONS (user_id, token) VALUES (?, ?);";
+        const char* sql = "INSERT INTO SESSIONS (user_id, token_hash) VALUES (?, ?);";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_int64(stmt, 1, userId);
-            sqlite3_bind_text(stmt, 2, token.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, tokenHash.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(stmt);
             sqlite3_finalize(stmt);
-            return token;
+            return rawToken;
         }
         return "";
     }
@@ -513,7 +556,7 @@ public:
         }
 
         sqlite3_stmt* stmt = nullptr;
-        const char* sql = "SELECT id, username, password, salt FROM USERS WHERE LOWER(email) = ?;";
+        const char* sql = "SELECT id, username, password, salt, algo FROM USERS WHERE LOWER(email) = ?;";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
             res->message = "Database error.";
             session->SendPacket(res);
@@ -526,26 +569,45 @@ public:
             std::string username = ColumnText(stmt, 1);
             std::string storedPass = ColumnText(stmt, 2);
             std::string salt = ColumnText(stmt, 3);
+            std::string algo = ColumnText(stmt, 4);
             sqlite3_finalize(stmt);
 
             bool passwordMatch = false;
-            if (!salt.empty()) {
-                std::string expectedHash = HashPasswordWithSalt(p->password, salt);
+            if (algo == "pbkdf2" && !salt.empty()) {
+                std::string expectedHash = HashPasswordPBKDF2(p->password, salt);
                 passwordMatch = (expectedHash == storedPass);
             } else {
-                // Backward-compatibility: if user had legacy unsalted hash, verify and auto-upgrade
-                if (storedPass == p->password) {
+                // Auto-migration path for legacy accounts:
+                // Test against legacy fast salted SHA256, legacy unsalted, and pre-hashed formats
+                std::string legacySalted = HashPasswordWithSalt(p->password, salt);
+                if (legacySalted == storedPass || storedPass == p->password) {
                     passwordMatch = true;
+                } else {
+                    // Also check if client passed SHA256-prehashed password historically
+                    unsigned char shaBuf[SHA256_DIGEST_LENGTH];
+                    SHA256(reinterpret_cast<const unsigned char*>(p->password.c_str()), p->password.size(), shaBuf);
+                    std::stringstream ss;
+                    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+                        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(shaBuf[i]);
+                    }
+                    std::string clientHash = ss.str();
+                    if (HashPasswordWithSalt(clientHash, salt) == storedPass || storedPass == clientHash) {
+                        passwordMatch = true;
+                    }
+                }
+
+                if (passwordMatch) {
+                    // Seamlessly upgrade to PBKDF2 (600,000 iterations) in database
                     std::string newSalt = GenerateRandomSalt(16);
-                    std::string newSaltedHash = HashPasswordWithSalt(p->password, newSalt);
+                    std::string newPBKDF2Hash = HashPasswordPBKDF2(p->password, newSalt);
                     sqlite3_stmt* up = nullptr;
-                    if (sqlite3_prepare_v2(db, "UPDATE USERS SET password = ?, salt = ? WHERE id = ?;", -1, &up, nullptr) == SQLITE_OK) {
-                        sqlite3_bind_text(up, 1, newSaltedHash.c_str(), -1, SQLITE_TRANSIENT);
+                    if (sqlite3_prepare_v2(db, "UPDATE USERS SET password = ?, salt = ?, algo = 'pbkdf2' WHERE id = ?;", -1, &up, nullptr) == SQLITE_OK) {
+                        sqlite3_bind_text(up, 1, newPBKDF2Hash.c_str(), -1, SQLITE_TRANSIENT);
                         sqlite3_bind_text(up, 2, newSalt.c_str(), -1, SQLITE_TRANSIENT);
                         sqlite3_bind_int64(up, 3, userId);
                         sqlite3_step(up);
                         sqlite3_finalize(up);
-                        std::cout << "[MasterServer] [Security] Auto-upgraded user " << username << " to salted hash." << std::endl;
+                        std::cout << "[MasterServer] [Security] Auto-upgraded user " << username << " to PBKDF2-HMAC-SHA256." << std::endl;
                     }
                 }
             }
@@ -588,17 +650,23 @@ public:
             return;
         }
 
+        // Active token expiry check: prune inactive tokens older than 30 days
+        PruneExpiredSessions(db);
+
+        std::string tokenHash = HashSessionToken(p->token);
+
         sqlite3_stmt* stmt = nullptr;
         const char* sql = "SELECT U.username, S.id FROM SESSIONS S "
                           "JOIN USERS U ON S.user_id = U.id "
-                          "WHERE LOWER(U.email) = ? AND S.token = ?;";
+                          "WHERE LOWER(U.email) = ? AND (S.token_hash = ? OR S.token = ?);";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
             res->message = "Database error.";
             session->SendPacket(res);
             return;
         }
         sqlite3_bind_text(stmt, 1, email.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, p->token.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, tokenHash.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, p->token.c_str(), -1, SQLITE_TRANSIENT); // for legacy unhashed session migration
 
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             res->success = true;
@@ -608,9 +676,11 @@ public:
             int64_t sessId = sqlite3_column_int64(stmt, 1);
             sqlite3_finalize(stmt);
 
+            // Update last_used timestamp and ensure token_hash is stored
             sqlite3_stmt* upd = nullptr;
-            if (sqlite3_prepare_v2(db, "UPDATE SESSIONS SET last_used = CURRENT_TIMESTAMP WHERE id = ?;", -1, &upd, nullptr) == SQLITE_OK) {
-                sqlite3_bind_int64(upd, 1, sessId);
+            if (sqlite3_prepare_v2(db, "UPDATE SESSIONS SET last_used = CURRENT_TIMESTAMP, token_hash = ? WHERE id = ?;", -1, &upd, nullptr) == SQLITE_OK) {
+                sqlite3_bind_text(upd, 1, tokenHash.c_str(), -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int64(upd, 2, sessId);
                 sqlite3_step(upd);
                 sqlite3_finalize(upd);
             }
@@ -625,13 +695,16 @@ public:
 
     void OnPacket(std::shared_ptr<gMasterUserLogoutPacket> p) {
         if (!db || p->token.empty()) return;
+        std::string tokenHash = HashSessionToken(p->token);
+
         sqlite3_stmt* stmt = nullptr;
-        const char* sql = "DELETE FROM SESSIONS WHERE token = ?;";
+        const char* sql = "DELETE FROM SESSIONS WHERE token_hash = ? OR token = ?;";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-            sqlite3_bind_text(stmt, 1, p->token.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 1, tokenHash.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, p->token.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(stmt);
             sqlite3_finalize(stmt);
-            std::cout << "[MasterServer] Session revoked for token: " << p->token.substr(0, 8) << "..." << std::endl;
+            std::cout << "[MasterServer] Session revoked for token." << std::endl;
         }
     }
 
@@ -703,11 +776,12 @@ public:
                               "email TEXT UNIQUE NOT NULL,"
                               "password TEXT NOT NULL,"
                               "salt TEXT NOT NULL DEFAULT '',"
+                              "algo TEXT NOT NULL DEFAULT 'pbkdf2',"
                               "reg_date DATETIME DEFAULT CURRENT_TIMESTAMP);"
                               "CREATE TABLE IF NOT EXISTS SESSIONS ("
                               "id INTEGER PRIMARY KEY AUTOINCREMENT,"
                               "user_id INTEGER NOT NULL,"
-                              "token TEXT UNIQUE NOT NULL,"
+                              "token_hash TEXT UNIQUE NOT NULL,"
                               "created_at DATETIME DEFAULT CURRENT_TIMESTAMP,"
                               "last_used DATETIME DEFAULT CURRENT_TIMESTAMP,"
                               "FOREIGN KEY(user_id) REFERENCES USERS(id) ON DELETE CASCADE);";
@@ -717,8 +791,13 @@ public:
                 std::cerr << "SQL Error: " << errMsg << std::endl;
                 sqlite3_free(errMsg);
             }
-            // Safely attempt migration if USERS table already existed without salt column
+            // Safely attempt migrations if tables already existed
             sqlite3_exec(db, "ALTER TABLE USERS ADD COLUMN salt TEXT NOT NULL DEFAULT '';", 0, 0, nullptr);
+            sqlite3_exec(db, "ALTER TABLE USERS ADD COLUMN algo TEXT NOT NULL DEFAULT 'pbkdf2';", 0, 0, nullptr);
+            sqlite3_exec(db, "ALTER TABLE SESSIONS ADD COLUMN token_hash TEXT NOT NULL DEFAULT '';", 0, 0, nullptr);
+
+            // Prune expired sessions on startup
+            PruneExpiredSessions(db);
         }
 
         appmanager->setTargetFramerate(60);
