@@ -238,11 +238,7 @@ void GameBackendRemote::update(float deltaTime) {
 }
 
 bool GameBackendRemote::initializeVoice() {
-	if (voiceClient.isInitialized()) return true;
-	std::thread([this]() {
-		voiceClient.initialize();
-	}).detach();
-	return true;
+	return voiceClient.initialize();
 }
 
 void GameBackendRemote::shutdownVoice() {

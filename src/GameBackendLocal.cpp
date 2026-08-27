@@ -605,11 +605,7 @@ void GameBackendLocal::handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket&
 
 bool GameBackendLocal::initializeVoice() {
 	if (isDedicatedServer) return true;
-	if (voiceClient.isInitialized()) return true;
-	std::thread([this]() {
-		voiceClient.initialize();
-	}).detach();
-	return true;
+	return voiceClient.initialize();
 }
 
 void GameBackendLocal::shutdownVoice() {

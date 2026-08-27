@@ -93,6 +93,7 @@ public:
 		const std::int16_t* inputframes = static_cast<const std::int16_t*>(input);
 		if (outputframes) std::memset(outputframes, 0, framecount * sizeof(std::int16_t));
 		if (!self->initialized.load(std::memory_order_acquire)) return;
+		if (!self->enabled.load(std::memory_order_acquire)) return;
 		if (inputframes) self->processor.pushCapturedSamples(inputframes, framecount);
 		if (outputframes) self->processor.popPlaybackSamples(outputframes, framecount);
 	}
@@ -141,7 +142,6 @@ bool gTeamVoice::isInitialized() const {
 void gTeamVoice::setEnabled(bool enabled) {
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	state->enabled.store(enabled, std::memory_order_release);
-	state->processor.setEnabled(enabled);
 	if (!enabled) state->processor.setTransmitting(false);
 }
 

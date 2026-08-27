@@ -233,7 +233,10 @@ void gTeamVoiceServer::handleVoicePacket(ConnectionId senderconnectionid, const 
 			const State::Peer& peer = *item.second;
 			if (!peer.hasstate || !peer.controlpublished || !peer.state.canreceive || !isValidPeerState(peer.state)) continue;
 			if (peer.state.sessionid != senderstate.sessionid) continue;
-			if (!state->hearEnemies.load(std::memory_order_relaxed) && peer.state.teamid != senderstate.teamid) continue;
+			bool canHear = state->hearEnemies.load(std::memory_order_relaxed) ||
+			               peer.state.teamid == 0 || senderstate.teamid == 0 ||
+			               peer.state.teamid == senderstate.teamid;
+			if (!canHear) continue;
 			recipients.push_back({peer.send, peer.generation});
 		}
 	}
