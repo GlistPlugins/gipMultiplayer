@@ -313,51 +313,51 @@ public:
 		}
 		auto nextmix = VoiceClock::now();
 		while (running.load(std::memory_order_acquire)) {
-			std::lock_guard<std::mutex> worklock(workmutex);
-			if (!running.load(std::memory_order_acquire)) break;
-			std::uint64_t currentsessionepoch = sessionepoch.load(std::memory_order_acquire);
-			if ((currentsessionepoch & 1U) != 0) {
-				std::this_thread::sleep_for(std::chrono::milliseconds(1));
-				continue;
-			}
-			if (currentsessionepoch != observedsessionepoch) {
-				observedsessionepoch = currentsessionepoch;
-				clearWorkerState();
-				nextmix = VoiceClock::now();
-			}
-			std::uint64_t currentcaptureepoch = captureepoch.load(std::memory_order_acquire);
-			if (currentcaptureepoch != observedcaptureepoch) {
-				observedcaptureepoch = currentcaptureepoch;
-				capturequeue.discardByConsumer();
-				if (captureActive()) {
-					streamgeneration++;
-					if (streamgeneration == 0) streamgeneration++;
-					sequence = 0;
-					firstpacket = true;
+			{
+				std::lock_guard<std::mutex> worklock(workmutex);
+				if (!running.load(std::memory_order_acquire)) break;
+				std::uint64_t currentsessionepoch = sessionepoch.load(std::memory_order_acquire);
+				if ((currentsessionepoch & 1U) == 0) {
+					if (currentsessionepoch != observedsessionepoch) {
+						observedsessionepoch = currentsessionepoch;
+						clearWorkerState();
+						nextmix = VoiceClock::now();
+					}
+					std::uint64_t currentcaptureepoch = captureepoch.load(std::memory_order_acquire);
+					if (currentcaptureepoch != observedcaptureepoch) {
+						observedcaptureepoch = currentcaptureepoch;
+						capturequeue.discardByConsumer();
+						if (captureActive()) {
+							streamgeneration++;
+							if (streamgeneration == 0) streamgeneration++;
+							sequence = 0;
+							firstpacket = true;
+						}
+					}
+
+					processIncoming(observedsessionepoch);
+					if (captureActive()) {
+						PcmFrame frame;
+						while (capturequeue.pop(frame)) {
+							if (frame.sessionepoch != observedsessionepoch || frame.captureepoch != observedcaptureepoch) continue;
+							encodeFrame(frame, streamgeneration, sequence, firstpacket);
+							sequence++;
+							firstpacket = false;
+						}
+					} else {
+						capturequeue.discardByConsumer();
+					}
+
+					auto now = VoiceClock::now();
+					if (now >= nextmix) {
+						mixOneFrame(now);
+						nextmix += std::chrono::milliseconds(gvoice::FRAME_MILLISECONDS);
+						if (now - nextmix > std::chrono::milliseconds(100)) nextmix = now;
+					}
+					cleanupSpeakers(now);
+					updateSnapshots(now);
 				}
 			}
-
-			processIncoming(observedsessionepoch);
-			if (captureActive()) {
-				PcmFrame frame;
-				while (capturequeue.pop(frame)) {
-					if (frame.sessionepoch != observedsessionepoch || frame.captureepoch != observedcaptureepoch) continue;
-					encodeFrame(frame, streamgeneration, sequence, firstpacket);
-					sequence++;
-					firstpacket = false;
-				}
-			} else {
-				capturequeue.discardByConsumer();
-			}
-
-			auto now = VoiceClock::now();
-			if (now >= nextmix) {
-				mixOneFrame(now);
-				nextmix += std::chrono::milliseconds(gvoice::FRAME_MILLISECONDS);
-				if (now - nextmix > std::chrono::milliseconds(100)) nextmix = now;
-			}
-			cleanupSpeakers(now);
-			updateSnapshots(now);
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 	}
@@ -772,18 +772,14 @@ void gVoiceAudioProcessor::setEnabled(bool enabled) {
 }
 
 void gVoiceAudioProcessor::setTransmitting(bool transmitting) {
-	std::lock_guard<std::mutex> transitionlock(state->transitionmutex);
 	if (state->transmitting.load(std::memory_order_acquire) == transmitting) return;
-	std::lock_guard<std::mutex> worklock(state->workmutex);
 	state->transmitting.store(transmitting, std::memory_order_release);
 	state->captureepoch.fetch_add(1, std::memory_order_acq_rel);
 	state->clearOutgoing();
 }
 
 void gVoiceAudioProcessor::setLocalMuted(bool muted) {
-	std::lock_guard<std::mutex> transitionlock(state->transitionmutex);
 	if (state->localmuted.load(std::memory_order_acquire) == muted) return;
-	std::lock_guard<std::mutex> worklock(state->workmutex);
 	state->localmuted.store(muted, std::memory_order_release);
 	state->captureepoch.fetch_add(1, std::memory_order_acq_rel);
 	state->clearOutgoing();
