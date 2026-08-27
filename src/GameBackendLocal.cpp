@@ -563,7 +563,7 @@ void GameBackendLocal::syncVoicePeerStates() {
 		uint32_t hostId = 1;
 		std::string hostName = NetworkManager::getInstance()->loggedInUsername();
 		for (const auto& rp : roomPlayers) {
-			if ((!hostName.empty() && rp.name == hostName) || roomPlayers.size() == 1) {
+			if (!hostName.empty() && rp.name == hostName) {
 				hostId = rp.id;
 				break;
 			}
@@ -574,13 +574,16 @@ void GameBackendLocal::syncVoicePeerStates() {
 	std::lock_guard<std::mutex> lk(sessionsmutex);
 	for (auto& s : sessions) {
 		if (!s || !s->IsAlive()) continue;
+		uint32_t pid = static_cast<uint32_t>(s->id());
 		auto idptr = s->template user_pointer<uint32_t>();
-		if (!idptr || *idptr == 0) continue;
-		uint32_t pid = *idptr;
-		uint8_t team = 1;
+		if (idptr && *idptr != 0) {
+			pid = *idptr;
+		}
+		uint8_t team = 0;
 		for (const auto& rp : roomPlayers) {
-			if (rp.id == pid) {
+			if (rp.id == pid || rp.id == s->id()) {
 				team = rp.team;
+				pid = rp.id;
 				break;
 			}
 		}
