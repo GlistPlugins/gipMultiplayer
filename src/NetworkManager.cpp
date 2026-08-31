@@ -12,6 +12,11 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <cstdlib>
+#ifndef _WIN32
+#include <pwd.h>
+#include <unistd.h>
+#endif
 #include "znet/inet_addr.h"
 #include "znet/client.h"
 #include "znet/client_events.h"
@@ -33,16 +38,26 @@ std::string hashPassword(const std::string& pwd) {
     return ss.str();
 }
 
+std::string getEnvOr(const char* name, const std::string& fallback = "") {
+    const char* value = std::getenv(name);
+    return value ? value : fallback;
+}
+
+// User name, machine name and home directory, so the saved token only decrypts
+// for the same user on the same machine.
 std::string getMachineKeyMaterial() {
     std::string material = "gipMultiplayer_GameMartyr_SecToken_2026_";
-    const char* user = std::getenv("USERNAME");
-    if (user) material += user;
-    const char* comp = std::getenv("COMPUTERNAME");
-    if (comp) material += comp;
-    const char* prof = std::getenv("USERPROFILE");
-    if (prof) material += prof;
-    const char* homedir = std::getenv("HOME");
-    if (homedir) material += homedir;
+#ifdef _WIN32
+    material += getEnvOr("USERNAME");
+    material += getEnvOr("COMPUTERNAME");
+    material += getEnvOr("USERPROFILE");
+#else
+    const passwd* pw = getpwuid(getuid());
+    material += getEnvOr("USER", pw && pw->pw_name ? pw->pw_name : "");
+    char host[256] = {};
+    if (gethostname(host, sizeof(host) - 1) == 0) material += host;
+    material += getEnvOr("HOME", pw && pw->pw_dir ? pw->pw_dir : "");
+#endif
     return material;
 }
 
