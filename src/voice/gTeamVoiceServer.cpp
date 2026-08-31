@@ -77,6 +77,7 @@ public:
 	std::atomic<std::uint64_t> malformedpackets{0};
 	std::atomic<std::uint64_t> ratelimitedpackets{0};
 	std::atomic<std::uint64_t> sendfailures{0};
+	std::atomic<bool> hearEnemies{false};
 };
 
 gTeamVoiceServer::gTeamVoiceServer() : state(std::make_unique<State>(Config{})) {
@@ -231,7 +232,11 @@ void gTeamVoiceServer::handleVoicePacket(ConnectionId senderconnectionid, const 
 			if (item.first == senderconnectionid) continue;
 			const State::Peer& peer = *item.second;
 			if (!peer.hasstate || !peer.controlpublished || !peer.state.canreceive || !isValidPeerState(peer.state)) continue;
-			if (peer.state.sessionid != senderstate.sessionid || peer.state.teamid != senderstate.teamid) continue;
+			if (peer.state.sessionid != senderstate.sessionid) continue;
+			bool canHear = state->hearEnemies.load(std::memory_order_relaxed) ||
+			               peer.state.teamid == 0 || senderstate.teamid == 0 ||
+			               peer.state.teamid == senderstate.teamid;
+			if (!canHear) continue;
 			recipients.push_back({peer.send, peer.generation});
 		}
 	}
@@ -254,6 +259,14 @@ void gTeamVoiceServer::handleVoicePacket(ConnectionId senderconnectionid, const 
 			state->sendfailures.fetch_add(1, std::memory_order_relaxed);
 		}
 	}
+}
+
+void gTeamVoiceServer::setHearEnemiesVoice(bool enable) {
+	state->hearEnemies.store(enable, std::memory_order_release);
+}
+
+bool gTeamVoiceServer::canHearEnemiesVoice() const {
+	return state->hearEnemies.load(std::memory_order_acquire);
 }
 
 void gTeamVoiceServer::reportMalformedPacket(gTeamVoicePacketError) {

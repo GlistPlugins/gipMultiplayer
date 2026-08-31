@@ -69,6 +69,9 @@ public:
 	void handleVoicePacket(ConnectionId senderconnectionid, const gTeamVoiceUplinkPacket& packet);
 	void reportMalformedPacket(gTeamVoicePacketError error = gTeamVoicePacketError::BUFFER_ERROR);
 
+	void setHearEnemiesVoice(bool enable);
+	bool canHearEnemiesVoice() const;
+
 	Stats getStats() const;
 	std::size_t getPeerCount() const;
 	void reset();

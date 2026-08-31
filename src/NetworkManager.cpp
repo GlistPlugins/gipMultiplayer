@@ -199,6 +199,8 @@ bool NetworkManager::installBackend(std::shared_ptr<GameBackend> next, uint64_t 
 }
 
 void NetworkManager::wireBackend(const std::shared_ptr<GameBackend>& next) {
+    next->setVoiceEnabled(voiceMode.load() != VOICE_MODE_OFF);
+    next->setHearEnemiesVoice(hearEnemiesVoice.load());
     next->setOnLobbyStateUpdated([this](std::shared_ptr<LobbyStatePacket> p) {
         currentLobbyState = p;
         if (onLobbyStateUpdated) onLobbyStateUpdated(p);
@@ -348,6 +350,195 @@ void NetworkManager::kickPlayer(uint32_t playerId) {
 int NetworkManager::getPing() const {
     auto active = getBackend();
     return active ? active->getPing() : 0;
+}
+
+void NetworkManager::setVoiceMode(VoiceChatMode mode) {
+    voiceMode.store(mode, std::memory_order_release);
+    auto active = getBackend();
+    if (active) {
+        if (mode == VOICE_MODE_OFF) {
+            active->stopVoiceTransmission();
+            active->setVoiceEnabled(false);
+        } else {
+            active->setVoiceEnabled(true);
+        }
+    }
+}
+
+void NetworkManager::setProximityChatEnabled(bool enabled) {
+    proximityChatEnabled.store(enabled, std::memory_order_release);
+    setHearEnemiesVoice(enabled);
+}
+
+float NetworkManager::calculateProximityVolume(float distance) const {
+    if (!isProximityChatEnabled()) return 1.0f;
+    float fullDist = getProximityFullVolumeDistance();
+    float maxDist = getProximityMaxDistance();
+    if (distance <= fullDist) return 1.0f;
+    if (distance >= maxDist) return 0.0f;
+    float t = (distance - fullDist) / (maxDist - fullDist);
+    float factor = 1.0f - t;
+    return factor * factor;
+}
+
+void NetworkManager::setHearEnemiesVoice(bool hear) {
+    hearEnemiesVoice.store(hear, std::memory_order_release);
+    auto active = getBackend();
+    if (active) {
+        active->setHearEnemiesVoice(hear);
+    }
+}
+
+bool NetworkManager::canHearEnemiesVoice() const {
+    return hearEnemiesVoice.load(std::memory_order_acquire);
+}
+
+void NetworkManager::handleVoiceKeyDown() {
+    VoiceChatMode mode = voiceMode.load(std::memory_order_acquire);
+    if (mode == VOICE_MODE_OFF) return;
+    if (mode == VOICE_MODE_PUSH_TO_TALK) {
+        if (!isVoiceTransmitting()) {
+            startVoiceTransmission();
+        }
+    } else if (mode == VOICE_MODE_TOGGLE) {
+        if (isVoiceTransmitting()) {
+            stopVoiceTransmission();
+        } else {
+            startVoiceTransmission();
+        }
+    }
+}
+
+void NetworkManager::handleVoiceKeyUp() {
+    VoiceChatMode mode = voiceMode.load(std::memory_order_acquire);
+    if (mode == VOICE_MODE_PUSH_TO_TALK) {
+        if (isVoiceTransmitting()) {
+            stopVoiceTransmission();
+        }
+    }
+}
+
+void NetworkManager::startVoiceTransmission() {
+    auto active = getBackend();
+    if (active) {
+        active->startVoiceTransmission();
+    }
+}
+
+void NetworkManager::stopVoiceTransmission() {
+    auto active = getBackend();
+    if (active) {
+        active->stopVoiceTransmission();
+    }
+}
+
+bool NetworkManager::isVoiceTransmitting() const {
+    auto active = getBackend();
+    return active ? active->isVoiceTransmitting() : false;
+}
+
+bool NetworkManager::isPlayerTalking(uint32_t playerId) const {
+    auto active = getBackend();
+    return active ? active->isPlayerTalking(playerId) : false;
+}
+
+void NetworkManager::setPlayerVoiceMuted(uint32_t playerId, bool muted) {
+    auto active = getBackend();
+    if (active) {
+        active->setSpeakerMuted(playerId, muted);
+    }
+}
+
+void NetworkManager::setPlayerVoiceVolume(uint32_t playerId, float volume) {
+    auto active = getBackend();
+    if (active) {
+        active->setSpeakerVolume(playerId, volume);
+    }
+}
+
+void NetworkManager::setMicrophoneVolume(int volume) {
+    auto active = getBackend();
+    if (active) {
+        active->setMicrophoneVolume(volume);
+    }
+}
+
+int NetworkManager::getMicrophoneVolume() const {
+    auto active = getBackend();
+    return active ? active->getMicrophoneVolume() : 100;
+}
+
+void NetworkManager::setVoicePlaybackVolume(int volume) {
+    auto active = getBackend();
+    if (active) {
+        active->setVoicePlaybackVolume(volume);
+    }
+}
+
+int NetworkManager::getVoicePlaybackVolume() const {
+    auto active = getBackend();
+    return active ? active->getVoicePlaybackVolume() : 100;
+}
+
+std::vector<std::string> NetworkManager::getCaptureDeviceNames() {
+    auto active = getBackend();
+    if (active) {
+        return active->getCaptureDeviceNames();
+    }
+    gTeamVoice dummyVoice;
+    return dummyVoice.getCaptureDeviceNames();
+}
+
+int NetworkManager::getCaptureDeviceIndex() const {
+    auto active = getBackend();
+    return active ? active->getCaptureDeviceIndex() : 0;
+}
+
+void NetworkManager::setCaptureDeviceIndex(int index) {
+    auto active = getBackend();
+    if (active) {
+        active->setCaptureDeviceIndex(index);
+    }
+}
+
+std::vector<std::string> NetworkManager::getPlaybackDeviceNames() {
+    auto active = getBackend();
+    if (active) {
+        return active->getPlaybackDeviceNames();
+    }
+    gTeamVoice dummyVoice;
+    return dummyVoice.getPlaybackDeviceNames();
+}
+
+int NetworkManager::getPlaybackDeviceIndex() const {
+    auto active = getBackend();
+    return active ? active->getPlaybackDeviceIndex() : 0;
+}
+
+void NetworkManager::setPlaybackDeviceIndex(int index) {
+    auto active = getBackend();
+    if (active) {
+        active->setPlaybackDeviceIndex(index);
+    }
+}
+
+std::string NetworkManager::getPlayerName(uint32_t netId) const {
+    if (currentLobbyState) {
+        for (size_t i = 0; i < currentLobbyState->playerIds.size(); ++i) {
+            if (currentLobbyState->playerIds[i] == netId) {
+                return currentLobbyState->playerNames[i];
+            }
+        }
+    }
+    auto active = getBackend();
+    if (active) {
+        for (const auto& rp : active->roomPlayers) {
+            if (rp.id == netId) {
+                return rp.name;
+            }
+        }
+    }
+    return "";
 }
 
 void NetworkManager::pushQueryResult(const std::string& name, const std::string& format, const std::string& sizeStr,
@@ -577,11 +768,10 @@ void NetworkManager::loginUser(const std::string& email, const std::string& pass
         std::lock_guard<std::mutex> lk(authMutex);
         sessionEmail = email;
     }
-    const std::string hashed = hashPassword(password);
-    runAuthRequest("Logging in...", [email, hashed]() {
+    runAuthRequest("Logging in...", [email, password]() {
         auto req = std::make_shared<gMasterUserLoginPacket>();
         req->email = email;
-        req->password = hashed;
+        req->password = password; // Sent over znet AES-256-GCM encrypted transport
         return req;
     });
 }
@@ -606,12 +796,11 @@ void NetworkManager::registerUser(const std::string& username, const std::string
         sessionEmail = email;
         authUsername = username;
     }
-    const std::string hashed = hashPassword(password);
-    runAuthRequest("Registering...", [username, email, hashed]() {
+    runAuthRequest("Registering...", [username, email, password]() {
         auto req = std::make_shared<gMasterUserRegisterPacket>();
         req->username = username;
         req->email = email;
-        req->password = hashed;
+        req->password = password; // Sent over znet AES-256-GCM encrypted transport
         return req;
     });
 }

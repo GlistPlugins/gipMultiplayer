@@ -17,10 +17,38 @@ class gTeamVoice::State {
 public:
 	State() {
 		std::memset(&device, 0, sizeof(device));
+		refreshDevices();
 	}
 
 	~State() {
 		shutdown();
+	}
+
+	void refreshDevices() {
+		ma_context ctx;
+		if (ma_context_init(nullptr, 0, nullptr, &ctx) == MA_SUCCESS) {
+			ma_device_info* pPlaybackInfos = nullptr;
+			ma_uint32 playbackCount = 0;
+			ma_device_info* pCaptureInfos = nullptr;
+			ma_uint32 captureCount = 0;
+			if (ma_context_get_devices(&ctx, &pPlaybackInfos, &playbackCount, &pCaptureInfos, &captureCount) == MA_SUCCESS) {
+				captureDeviceNames.clear();
+				captureDeviceIDs.clear();
+				captureDeviceNames.push_back("Varsayilan");
+				for (ma_uint32 i = 0; i < captureCount; ++i) {
+					captureDeviceNames.push_back(pCaptureInfos[i].name);
+					captureDeviceIDs.push_back(pCaptureInfos[i].id);
+				}
+				playbackDeviceNames.clear();
+				playbackDeviceIDs.clear();
+				playbackDeviceNames.push_back("Varsayilan");
+				for (ma_uint32 i = 0; i < playbackCount; ++i) {
+					playbackDeviceNames.push_back(pPlaybackInfos[i].name);
+					playbackDeviceIDs.push_back(pPlaybackInfos[i].id);
+				}
+			}
+			ma_context_uninit(&ctx);
+		}
 	}
 
 	bool initialize() {
@@ -40,11 +68,6 @@ public:
 
 		ma_device* enginedevice = ma_engine_get_device(gGetSoundEngine());
 		ma_context* context = enginedevice == nullptr ? nullptr : ma_device_get_context(enginedevice);
-		if (context == nullptr) {
-			lasterror = "Could not access the GlistEngine audio context";
-			processor.stop();
-			return false;
-		}
 
 		ma_device_config config = ma_device_config_init(ma_device_type_duplex);
 		config.capture.format = ma_format_s16;
@@ -56,7 +79,18 @@ public:
 		config.dataCallback = dataCallback;
 		config.notificationCallback = notificationCallback;
 		config.pUserData = this;
+
+		if (captureDeviceIndex > 0 && captureDeviceIndex <= static_cast<int>(captureDeviceIDs.size())) {
+			config.capture.pDeviceID = &captureDeviceIDs[captureDeviceIndex - 1];
+		}
+		if (playbackDeviceIndex > 0 && playbackDeviceIndex <= static_cast<int>(playbackDeviceIDs.size())) {
+			config.playback.pDeviceID = &playbackDeviceIDs[playbackDeviceIndex - 1];
+		}
+
 		ma_result result = ma_device_init(context, &config, &device);
+		if (result != MA_SUCCESS && context != nullptr) {
+			result = ma_device_init(nullptr, &config, &device);
+		}
 		if (result != MA_SUCCESS) {
 			lasterror = ma_result_description(result);
 			processor.stop();
@@ -95,8 +129,36 @@ public:
 		const std::int16_t* inputframes = static_cast<const std::int16_t*>(input);
 		if (outputframes) std::memset(outputframes, 0, framecount * sizeof(std::int16_t));
 		if (!self->initialized.load(std::memory_order_acquire)) return;
-		if (inputframes) self->processor.pushCapturedSamples(inputframes, framecount);
-		if (outputframes) self->processor.popPlaybackSamples(outputframes, framecount);
+		if (!self->enabled.load(std::memory_order_acquire)) return;
+
+		if (inputframes) {
+			float micGain = self->micVolume.load(std::memory_order_relaxed);
+			if (std::abs(micGain - 1.0f) > 0.01f) {
+				std::vector<std::int16_t> scaledInput(inputframes, inputframes + framecount);
+				for (auto& s : scaledInput) {
+					float v = static_cast<float>(s) * micGain;
+					if (v > 32767.0f) v = 32767.0f;
+					else if (v < -32768.0f) v = -32768.0f;
+					s = static_cast<std::int16_t>(v);
+				}
+				self->processor.pushCapturedSamples(scaledInput.data(), framecount);
+			} else {
+				self->processor.pushCapturedSamples(inputframes, framecount);
+			}
+		}
+
+		if (outputframes) {
+			self->processor.popPlaybackSamples(outputframes, framecount);
+			float playVol = self->playbackVolume.load(std::memory_order_relaxed);
+			if (std::abs(playVol - 1.0f) > 0.01f) {
+				for (ma_uint32 i = 0; i < framecount; ++i) {
+					float v = static_cast<float>(outputframes[i]) * playVol;
+					if (v > 32767.0f) v = 32767.0f;
+					else if (v < -32768.0f) v = -32768.0f;
+					outputframes[i] = static_cast<std::int16_t>(v);
+				}
+			}
+		}
 	}
 
 	static void notificationCallback(const ma_device_notification* notification) {
@@ -110,6 +172,14 @@ public:
 	std::atomic<bool> initialized{false};
 	std::atomic<bool> enabled{true};
 	std::atomic<bool> localmuted{false};
+	std::atomic<float> micVolume{1.0f};
+	std::atomic<float> playbackVolume{1.0f};
+	int captureDeviceIndex = 0;
+	int playbackDeviceIndex = 0;
+	std::vector<ma_device_id> captureDeviceIDs;
+	std::vector<ma_device_id> playbackDeviceIDs;
+	std::vector<std::string> captureDeviceNames;
+	std::vector<std::string> playbackDeviceNames;
 	bool deviceinitialized = false;
 	ma_device device;
 	gVoiceAudioProcessor processor;
@@ -143,7 +213,6 @@ bool gTeamVoice::isInitialized() const {
 void gTeamVoice::setEnabled(bool enabled) {
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	state->enabled.store(enabled, std::memory_order_release);
-	state->processor.setEnabled(enabled);
 	if (!enabled) state->processor.setTransmitting(false);
 }
 
@@ -152,11 +221,13 @@ bool gTeamVoice::isEnabled() const {
 }
 
 void gTeamVoice::startTransmitting() {
+	if (isTransmitting()) return;
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	if (isEnabled()) state->processor.setTransmitting(true);
 }
 
 void gTeamVoice::stopTransmitting() {
+	if (!isTransmitting()) return;
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	state->processor.setTransmitting(false);
 }
@@ -181,6 +252,62 @@ bool gTeamVoice::setSpeakerMuted(std::uint64_t speakerid, bool muted) {
 
 bool gTeamVoice::setSpeakerVolume(std::uint64_t speakerid, float volume) {
 	return state->processor.setSpeakerVolume(speakerid, volume);
+}
+
+void gTeamVoice::setMicrophoneVolume(int volume) {
+	if (volume < 0) volume = 0;
+	if (volume > 200) volume = 200;
+	state->micVolume.store(static_cast<float>(volume) / 100.0f, std::memory_order_release);
+}
+
+int gTeamVoice::getMicrophoneVolume() const {
+	return static_cast<int>(std::round(state->micVolume.load(std::memory_order_acquire) * 100.0f));
+}
+
+void gTeamVoice::setPlaybackVolume(int volume) {
+	if (volume < 0) volume = 0;
+	if (volume > 100) volume = 100;
+	state->playbackVolume.store(static_cast<float>(volume) / 100.0f, std::memory_order_release);
+}
+
+int gTeamVoice::getPlaybackVolume() const {
+	return static_cast<int>(std::round(state->playbackVolume.load(std::memory_order_acquire) * 100.0f));
+}
+
+std::vector<std::string> gTeamVoice::getCaptureDeviceNames() {
+	state->refreshDevices();
+	return state->captureDeviceNames;
+}
+
+int gTeamVoice::getCaptureDeviceIndex() const {
+	return state->captureDeviceIndex;
+}
+
+void gTeamVoice::setCaptureDeviceIndex(int index) {
+	if (state->captureDeviceIndex == index) return;
+	state->captureDeviceIndex = index;
+	if (state->initialized.load(std::memory_order_acquire)) {
+		state->shutdown();
+		state->initialize();
+	}
+}
+
+std::vector<std::string> gTeamVoice::getPlaybackDeviceNames() {
+	state->refreshDevices();
+	return state->playbackDeviceNames;
+}
+
+int gTeamVoice::getPlaybackDeviceIndex() const {
+	return state->playbackDeviceIndex;
+}
+
+void gTeamVoice::setPlaybackDeviceIndex(int index) {
+	if (state->playbackDeviceIndex == index) return;
+	state->playbackDeviceIndex = index;
+	if (state->initialized.load(std::memory_order_acquire)) {
+		state->shutdown();
+		state->initialize();
+	}
 }
 
 void gTeamVoice::handleSessionPacket(const gTeamVoiceSessionPacket& packet) {
@@ -213,18 +340,16 @@ void gTeamVoice::resetSession() {
 	state->processor.clearSession();
 }
 
-std::size_t gTeamVoice::updateNetwork(znet::PeerSession& session) {
+std::size_t gTeamVoice::updateNetwork(const std::function<bool(const gTeamVoiceUplinkPacket&)>& sendCallback) {
 	std::lock_guard<std::mutex> lock(state->networkmutex);
 	if (!state->initialized.load(std::memory_order_acquire) ||
-			!state->enabled.load(std::memory_order_acquire) || !session.IsAlive() ||
-			session.connection_type() != znet::ConnectionType::ZDT) {
+			!state->enabled.load(std::memory_order_acquire)) {
 		return 0;
 	}
 	std::size_t sent = 0;
 	gTeamVoiceUplinkPacket packet;
 	while (state->processor.popOutgoingPacket(packet)) {
-		auto outgoing = std::make_shared<gTeamVoiceUplinkPacket>(packet);
-		if (session.SendPacket(outgoing, gGetTeamVoiceDataSendOptions()) == znet::Result::Success) {
+		if (sendCallback && sendCallback(packet)) {
 			state->sentpackets.fetch_add(1, std::memory_order_relaxed);
 			state->sentbytes.fetch_add(packet.payload.size(), std::memory_order_relaxed);
 			sent++;
@@ -233,6 +358,16 @@ std::size_t gTeamVoice::updateNetwork(znet::PeerSession& session) {
 		}
 	}
 	return sent;
+}
+
+std::size_t gTeamVoice::updateNetwork(znet::PeerSession& session) {
+	if (!session.IsAlive() || session.connection_type() != znet::ConnectionType::ZDT) {
+		return 0;
+	}
+	return updateNetwork([&session](const gTeamVoiceUplinkPacket& packet) {
+		auto outgoing = std::make_shared<gTeamVoiceUplinkPacket>(packet);
+		return session.SendPacket(outgoing, gGetTeamVoiceDataSendOptions()) == znet::Result::Success;
+	});
 }
 
 gTeamVoice::Stats gTeamVoice::getStats() const {

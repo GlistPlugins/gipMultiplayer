@@ -9,6 +9,7 @@
 #pragma once
 
 #include "GameBackend.h"
+#include "audio/gTeamVoice.h"
 #include "znet/client.h"
 #include "znet/client_events.h"
 
@@ -19,7 +20,38 @@ public:
 	~GameBackendRemote() override;
 
 	void start() override;
+	void update(float deltaTime) override;
 	void sendPacket(std::shared_ptr<znet::Packet> packet) override;
+
+	// Voice Chat Interface
+	bool initializeVoice() override;
+	void shutdownVoice() override;
+	void startVoiceTransmission() override;
+	void stopVoiceTransmission() override;
+	bool isVoiceTransmitting() const override;
+	bool isPlayerTalking(uint32_t playerId) const override;
+	void setSpeakerMuted(uint32_t playerId, bool muted) override;
+	void setSpeakerVolume(uint32_t playerId, float volume) override;
+	void setVoiceEnabled(bool enabled) override;
+	bool isVoiceEnabled() const override;
+	void setHearEnemiesVoice(bool hear) override;
+	bool canHearEnemiesVoice() const override;
+
+	void setMicrophoneVolume(int volume) override { voiceClient.setMicrophoneVolume(volume); }
+	int getMicrophoneVolume() const override { return voiceClient.getMicrophoneVolume(); }
+	void setVoicePlaybackVolume(int volume) override { voiceClient.setPlaybackVolume(volume); }
+	int getVoicePlaybackVolume() const override { return voiceClient.getPlaybackVolume(); }
+
+	std::vector<std::string> getCaptureDeviceNames() override { return voiceClient.getCaptureDeviceNames(); }
+	int getCaptureDeviceIndex() const override { return voiceClient.getCaptureDeviceIndex(); }
+	void setCaptureDeviceIndex(int index) override { voiceClient.setCaptureDeviceIndex(index); }
+
+	std::vector<std::string> getPlaybackDeviceNames() override { return voiceClient.getPlaybackDeviceNames(); }
+	int getPlaybackDeviceIndex() const override { return voiceClient.getPlaybackDeviceIndex(); }
+	void setPlaybackDeviceIndex(int index) override { voiceClient.setPlaybackDeviceIndex(index); }
+
+	void handleVoiceSessionPacket(const gTeamVoiceSessionPacket& p);
+	void handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& p);
 
 protected:
 	void broadcastState(uint32_t netid, float x, float y, float z, float yaw, uint8_t team, uint8_t animState) override;
@@ -44,6 +76,8 @@ private:
 	std::mutex sessionmutex;
 	std::shared_ptr<znet::PeerSession> session;
 	std::vector<std::shared_ptr<znet::Packet>> pendingPackets;
+
+	gTeamVoice voiceClient;
 
 	std::unique_ptr<znet::Client> client; // Declared last so it gets destroyed first
 };

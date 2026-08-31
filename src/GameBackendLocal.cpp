@@ -1,5 +1,6 @@
 #include "GameBackendLocal.h"
 #include "NetworkManager.h"
+#include "voice/gTeamVoicePackets.h"
 #include <algorithm>
 #include <memory>
 #include <thread>
@@ -9,12 +10,17 @@
 #include "znet/p2p/dialer.h"
 #include "znet/inet_addr.h"
 
+constexpr uint64_t LOCAL_HOST_VOICE_CONN_ID = 0xFFFFFFFFFFFFFFFFULL;
+
 // Handles packets arriving from a connected client.
 // When a client sends its position (NodeStatePacket):
 //   1. Enqueues it into the host's backend so the host sees the remote player.
 //   2. Tags the session with the sender's ID (for identification on disconnect).
 //   3. Rebroadcasts the packet to all OTHER connected clients.
-class ServerPacketHandler : public znet::PacketHandler<ServerPacketHandler, NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket, ServerQueryReqPacket, LobbyJoinPacket, ToggleReadyPacket, SwitchTeamPacket, StartMatchPacket, KeepAlivePacket, PingPacket, PongPacket> {
+class ServerPacketHandler : public znet::PacketHandler<ServerPacketHandler,
+	NodeStatePacket, NodeLeavePacket, PlayerFirePacket, PlayerHitPacket, PlayerKilledPacket,
+	ServerQueryReqPacket, LobbyJoinPacket, ToggleReadyPacket, SwitchTeamPacket, StartMatchPacket,
+	KeepAlivePacket, PingPacket, PongPacket, gTeamVoiceUplinkPacket> {
 public:
 	ServerPacketHandler(GameBackendLocal* b, znet::PeerSession* s) : backend(b), peersession(s) {}
 
@@ -61,6 +67,7 @@ public:
 		backend->enqueuePacket(std::static_pointer_cast<znet::Packet>(p));
 		// Tag the session with the sender's ID so we know who they are when they disconnect
 		peersession->SetUserPointer(std::make_shared<uint32_t>(p->senderId));
+		backend->syncVoicePeerStates();
 	}
 	void OnPacket(std::shared_ptr<ToggleReadyPacket> p) {
 		backend->enqueuePacket(std::static_pointer_cast<znet::Packet>(p));
@@ -84,6 +91,11 @@ public:
 
 	void OnPacket(std::shared_ptr<PongPacket> p) {
 		backend->onPongReceived(p->timestamp);
+	}
+
+	// Voice Uplink from remote client
+	void OnPacket(std::shared_ptr<gTeamVoiceUplinkPacket> p) {
+		backend->handleVoiceUplinkPacket(peersession->id(), *p);
 	}
 
 	void OnUnknown(std::shared_ptr<znet::Packet>) {}
@@ -117,11 +129,18 @@ static std::shared_ptr<znet::Codec> makeCodec() {
 	codec->Add(PACKET_PING, std::make_unique<PingSerializer>());
 	codec->Add(PACKET_PONG, std::make_unique<PongSerializer>());
 
+	// Voice Packets
+	codec->Add(G_TEAM_VOICE_SESSION_PACKET_ID, std::make_unique<gTeamVoiceSessionSerializer>());
+	codec->Add(G_TEAM_VOICE_UPLINK_PACKET_ID, std::make_unique<gTeamVoiceUplinkSerializer>());
+	codec->Add(G_TEAM_VOICE_DOWNLINK_PACKET_ID, std::make_unique<gTeamVoiceDownlinkSerializer>());
+
 	return codec;
 }
 
 GameBackendLocal::GameBackendLocal(const std::string& bindIp, uint16_t port)
 	: bindip(bindIp), port(port) {
+	static std::atomic<uint64_t> s_voiceSessionSeq{1000};
+	voiceSessionId = s_voiceSessionSeq.fetch_add(1);
 }
 
 GameBackendLocal::~GameBackendLocal() {
@@ -148,6 +167,10 @@ GameBackendLocal::~GameBackendLocal() {
 			if (s) s->Close();
 		}
 		sessions.clear();
+	}
+	voiceRouter.reset();
+	if (!isDedicatedServer) {
+		voiceClient.shutdown();
 	}
 }
 
@@ -177,6 +200,19 @@ void GameBackendLocal::start() {
 	});
 	queryServer->Bind();
 	queryServer->Listen();
+
+	if (!isDedicatedServer) {
+		initializeVoice();
+		voiceRouter.addPeer(LOCAL_HOST_VOICE_CONN_ID, [this](const std::shared_ptr<znet::Packet>& p, const znet::SendOptions&) {
+			if (auto down = std::dynamic_pointer_cast<gTeamVoiceDownlinkPacket>(p)) {
+				voiceClient.handleVoicePacket(*down);
+			} else if (auto sess = std::dynamic_pointer_cast<gTeamVoiceSessionPacket>(p)) {
+				voiceClient.handleSessionPacket(*sess);
+			}
+			return true;
+		});
+		syncVoicePeerStates();
+	}
 
 	notifyConnected();
 }
@@ -364,6 +400,13 @@ void GameBackendLocal::update(float deltaTime) {
         broadcast(lp);
     }
 
+    if (!isDedicatedServer) {
+        voiceClient.updateNetwork([this](const gTeamVoiceUplinkPacket& packet) {
+            voiceRouter.handleVoicePacket(LOCAL_HOST_VOICE_CONN_ID, packet);
+            return true;
+        });
+    }
+
     masterHeartbeatTimer += deltaTime;
     if (masterHeartbeatTimer >= 10.0f) {
         masterHeartbeatTimer = 0.0f;
@@ -396,8 +439,12 @@ void GameBackendLocal::adoptSession(const std::shared_ptr<znet::PeerSession>& se
 	if (!sess) return;
 	sess->SetCodec(makeCodec());
 	sess->SetHandler(std::make_shared<ServerPacketHandler>(this, sess.get()));
-	std::lock_guard<std::mutex> lk(sessionsmutex);
-	sessions.push_back(sess);
+	{
+		std::lock_guard<std::mutex> lk(sessionsmutex);
+		sessions.push_back(sess);
+	}
+	voiceRouter.addPeer(sess);
+	syncVoicePeerStates();
 }
 
 bool GameBackendLocal::onPeerConnected(znet::IncomingClientConnectedEvent& e) {
@@ -415,6 +462,8 @@ bool GameBackendLocal::onPeerDisconnected(znet::IncomingClientDisconnectedEvent&
 		auto idptr = e.session()->template user_pointer<uint32_t>();
 		if (idptr) leavingid = *idptr;
 	}
+
+	voiceRouter.removePeer(e.session()->id());
 
 	// Remove the disconnected session from our list
 	{
@@ -503,6 +552,130 @@ void GameBackendLocal::broadcastLobbyState() {
 		p->playerTeams.push_back(rp.team);
 		p->playerReadys.push_back(rp.isReady ? 1 : 0);
 	}
+	syncVoicePeerStates();
 	broadcast(p); // broadcasts to clients
 	if (onLobbyStateUpdated) onLobbyStateUpdated(p); // update local host UI
+}
+
+void GameBackendLocal::syncVoicePeerStates() {
+	if (voiceSessionId == 0) return;
+	if (!isDedicatedServer) {
+		uint32_t hostId = 1;
+		std::string hostName = NetworkManager::getInstance()->loggedInUsername();
+		for (const auto& rp : roomPlayers) {
+			if (!hostName.empty() && rp.name == hostName) {
+				hostId = rp.id;
+				break;
+			}
+		}
+		voiceRouter.setPeerState(LOCAL_HOST_VOICE_CONN_ID, {hostId, static_cast<uint64_t>(localTeam), voiceSessionId, true, true});
+	}
+
+	std::lock_guard<std::mutex> lk(sessionsmutex);
+	for (auto& s : sessions) {
+		if (!s || !s->IsAlive()) continue;
+		uint32_t pid = static_cast<uint32_t>(s->id());
+		auto idptr = s->template user_pointer<uint32_t>();
+		if (idptr && *idptr != 0) {
+			pid = *idptr;
+		}
+		uint8_t team = 0;
+		for (const auto& rp : roomPlayers) {
+			if (rp.id == pid || rp.id == s->id()) {
+				team = rp.team;
+				pid = rp.id;
+				break;
+			}
+		}
+		voiceRouter.setPeerState(s->id(), {pid, static_cast<uint64_t>(team), voiceSessionId, true, true});
+	}
+}
+
+void GameBackendLocal::handleVoiceUplinkPacket(gTeamVoiceServer::ConnectionId connId, const gTeamVoiceUplinkPacket& p) {
+	voiceRouter.handleVoicePacket(connId, p);
+}
+
+void GameBackendLocal::handleVoiceSessionPacket(const gTeamVoiceSessionPacket& p) {
+	if (!isDedicatedServer) {
+		voiceClient.handleSessionPacket(p);
+	}
+}
+
+void GameBackendLocal::handleVoiceDownlinkPacket(const gTeamVoiceDownlinkPacket& p) {
+	if (!isDedicatedServer) {
+		voiceClient.handleVoicePacket(p);
+	}
+}
+
+bool GameBackendLocal::initializeVoice() {
+	if (isDedicatedServer) return true;
+	return voiceClient.initialize();
+}
+
+void GameBackendLocal::shutdownVoice() {
+	if (!isDedicatedServer) {
+		voiceClient.shutdown();
+	}
+	voiceRouter.reset();
+}
+
+void GameBackendLocal::startVoiceTransmission() {
+	if (isDedicatedServer) return;
+	if (!voiceClient.isInitialized()) {
+		initializeVoice();
+	}
+	voiceClient.startTransmitting();
+}
+
+void GameBackendLocal::stopVoiceTransmission() {
+	if (!isDedicatedServer) {
+		voiceClient.stopTransmitting();
+	}
+}
+
+bool GameBackendLocal::isVoiceTransmitting() const {
+	if (isDedicatedServer) return false;
+	return voiceClient.isTransmitting();
+}
+
+bool GameBackendLocal::isPlayerTalking(uint32_t playerId) const {
+	if (isDedicatedServer) return false;
+	auto stats = voiceClient.getSpeakerStats();
+	for (const auto& s : stats) {
+		if (s.speakerid == playerId && s.jitterdepth > 0) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void GameBackendLocal::setSpeakerMuted(uint32_t playerId, bool muted) {
+	if (!isDedicatedServer) {
+		voiceClient.setSpeakerMuted(playerId, muted);
+	}
+}
+
+void GameBackendLocal::setSpeakerVolume(uint32_t playerId, float volume) {
+	if (!isDedicatedServer) {
+		voiceClient.setSpeakerVolume(playerId, volume);
+	}
+}
+
+void GameBackendLocal::setVoiceEnabled(bool enabled) {
+	if (!isDedicatedServer) {
+		voiceClient.setEnabled(enabled);
+	}
+}
+
+bool GameBackendLocal::isVoiceEnabled() const {
+	if (isDedicatedServer) return true;
+	return voiceClient.isEnabled();
+}
+
+void GameBackendLocal::setHearEnemiesVoice(bool hear) {
+	voiceRouter.setHearEnemiesVoice(hear);
+}
+
+bool GameBackendLocal::canHearEnemiesVoice() const {
+	return voiceRouter.canHearEnemiesVoice();
 }
