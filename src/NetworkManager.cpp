@@ -25,7 +25,7 @@ namespace {
 
 const std::string MASTER_IP = "martyr.irrl.dev";
 const uint16_t MASTER_PORT = 25010;
-// The master's relay control port: the reflector punch sockets gather from,
+// The master's relay port: the reflector punch sockets gather from,
 // and where relayed connections fall back to.
 const uint16_t MASTER_RELAY_PORT = 25011;
 const uint16_t DEFAULT_GAME_PORT = 25000;

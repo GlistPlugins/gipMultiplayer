@@ -220,7 +220,7 @@ void GameBackendLocal::start() {
 znet::p2p::Host* GameBackendLocal::ensurePunchHost() {
 	if (punchHost) return punchHost.get();
 
-	znet::p2p::Host::Config config;
+	znet::p2p::HostConfig config;
 	config.bind_address = "0.0.0.0";
 	config.bind_port = advertisedPort();
 

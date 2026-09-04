@@ -453,8 +453,8 @@ public:
             std::cout << "[MasterServer] Broker Handshake: Client(" << clientPublicIp << ":" << p->clientGamePort
                       << ") punching Host(" << targetServer->ip << ")" << std::endl;
 
-            // One relay port for the pair, the same on both sides, for when
-            // no direct candidate answers.
+            // One relay pairing for the two, the same token on both sides, for
+            // when no direct candidate answers.
             znet::p2p::Candidate relayed;
             const znet::p2p::Candidate* relayedPtr = nullptr;
             if (relay) {
@@ -462,7 +462,7 @@ public:
                 const znet::Result result = relay->Allocate(allocation);
                 if (result == znet::Result::Success) {
                     relayed.type = znet::p2p::CandidateType::Relayed;
-                    relayed.address = znet::InetAddress::from(relayHost.empty() ? "0.0.0.0" : relayHost, allocation.port);
+                    relayed.address = znet::InetAddress::from(relayHost.empty() ? "0.0.0.0" : relayHost, relay->address()->port());
                     relayed.relay_token = allocation.token;
                     relayedPtr = &relayed;
                 } else {
@@ -837,9 +837,8 @@ struct gRelayOptions {
     // The host peers reach the relay at; empty means the one they reached the
     // master at, which the clients substitute.
     std::string publicHost;
-    uint16_t controlPort = 25011;
-    uint16_t portMin = 0;
-    uint16_t portMax = 0;
+    // The one UDP port the relay binds, forwards and reflects on.
+    uint16_t port = 25011;
 };
 
 class gMasterServerApp : public gBaseApp {
@@ -905,20 +904,15 @@ public:
         appmanager->setTargetFramerate(60);
 
         if (relayOptions.enabled) {
-            znet::p2p::RelayServer::Config config;
-            config.control_port = relayOptions.controlPort;
-            config.port_min = relayOptions.portMin;
-            config.port_max = relayOptions.portMax;
+            znet::p2p::RelayServerConfig config;
+            config.port = relayOptions.port;
             relay = std::make_unique<znet::p2p::RelayServer>(config);
             const znet::Result result = relay->Start();
             if (result != znet::Result::Success) {
                 std::cerr << "[MasterServer] Relay failed to start: " << znet::GetResultString(result) << std::endl;
                 relay.reset();
             } else {
-                std::cout << "[MasterServer] Relay up: control port " << relayOptions.controlPort
-                          << ", allocations from " << (relayOptions.portMin == 0 ? std::string("ephemeral ports")
-                                                       : std::to_string(relayOptions.portMin) + "-" + std::to_string(relayOptions.portMax))
-                          << std::endl;
+                std::cout << "[MasterServer] Relay up on UDP port " << relayOptions.port << std::endl;
             }
         }
 
@@ -981,17 +975,8 @@ int main(int argc, char **argv) {
             relay.enabled = true;
         } else if (arg == "--relay-ip" && i + 1 < argc) {
             relay.publicHost = argv[++i];
-        } else if (arg == "--relay-control" && i + 1 < argc) {
-            if (!parsePort(argv[++i], relay.controlPort)) std::cerr << "Invalid --relay-control value, using " << relay.controlPort << std::endl;
-        } else if (arg == "--relay-ports" && i + 1 < argc) {
-            // min-max, the UDP range to open in the firewall
-            std::string range = argv[++i];
-            const size_t dash = range.find('-');
-            if (dash == std::string::npos || !parsePort(range.substr(0, dash), relay.portMin) ||
-                !parsePort(range.substr(dash + 1), relay.portMax) || relay.portMax < relay.portMin) {
-                std::cerr << "--relay-ports wants min-max, e.g. 30000-30999" << std::endl;
-                return 1;
-            }
+        } else if (arg == "--relay-port" && i + 1 < argc) {
+            if (!parsePort(argv[++i], relay.port)) std::cerr << "Invalid --relay-port value, using " << relay.port << std::endl;
         }
     }
     gStartEngine(new gMasterServerApp(port, relay), "MasterServer", G_LOOPMODE_NORMAL);

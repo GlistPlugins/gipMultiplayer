@@ -97,7 +97,7 @@ gipP2PSession gipP2PClient::joinSession(const std::string& masterIp, uint16_t ma
                                         const std::string& targetIdentifier, uint16_t localGamePort) {
     // The socket everything happens on: the gathering, the punch and the
     // session afterwards, since a NAT hands out one mapping per socket.
-    znet::p2p::Host::Config hostConfig;
+    znet::p2p::HostConfig hostConfig;
     hostConfig.bind_address = "0.0.0.0";
     hostConfig.bind_port = localGamePort;
     auto host = std::make_unique<znet::p2p::Host>(hostConfig);
@@ -106,7 +106,7 @@ gipP2PSession gipP2PClient::joinSession(const std::string& masterIp, uint16_t ma
         return {};
     }
 
-    // Gather: the master's relay control port reflects the public mapping.
+    // Gather: the master's relay reflects the public mapping.
     auto gathered = std::make_shared<gStep<std::vector<znet::p2p::Candidate>>>();
     std::shared_ptr<znet::InetAddress> reflector = znet::InetAddress::from(masterIp, masterRelayPort);
     std::vector<std::shared_ptr<znet::InetAddress>> reflectors;

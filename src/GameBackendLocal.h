@@ -83,8 +83,8 @@ protected:
 	std::unique_ptr<znet::Server> queryServer;
 
 public:
-	// masterRelayPort is the master's relay control port, the reflector the
-	// punch socket gathers its public mapping from.
+	// masterRelayPort is the master's relay port, the reflector the punch
+	// socket gathers its public mapping from.
 	void registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort, const std::string& publicIp, bool useP2P = false);
 	void update(float deltaTime) override;
 
