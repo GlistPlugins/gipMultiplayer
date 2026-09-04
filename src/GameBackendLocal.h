@@ -83,7 +83,9 @@ protected:
 	std::unique_ptr<znet::Server> queryServer;
 
 public:
-	void registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, const std::string& publicIp, bool useP2P = false);
+	// masterRelayPort is the master's relay control port, the reflector the
+	// punch socket gathers its public mapping from.
+	void registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort, const std::string& publicIp, bool useP2P = false);
 	void update(float deltaTime) override;
 
 	// The code the master assigned this lobby, empty until it answers.
@@ -95,6 +97,7 @@ protected:
 	std::string serverPassword = "";
 	std::string targetMasterIp = "127.0.0.1";
 	uint16_t targetMasterPort = 25010;
+	uint16_t targetMasterRelayPort = 25011;
 	// Both the register and the heartbeat send one, so it is built in one place.
 	std::shared_ptr<gMasterRegisterPacket> makeRegisterPacket() const;
 	// Port peers are told to use; punching runs on a separate socket.
@@ -113,7 +116,16 @@ protected:
 	std::unique_ptr<znet::p2p::Host> punchHost;
 	// Brings the punch host up on first use, since only P2P servers need it.
 	znet::p2p::Host* ensurePunchHost();
+	// Learns the punch socket's candidates off the master's relay and
+	// re-registers with them once they are in.
+	void gatherCandidates();
+	// The master names its own host as 0.0.0.0 on a candidate.
+	std::shared_ptr<znet::InetAddress> atMaster(const std::shared_ptr<znet::InetAddress>& address) const;
 	void onPunchResolved(znet::Result result, std::shared_ptr<znet::PeerSession> session);
+
+	// Written by the punch host's thread, read wherever a register is built.
+	mutable std::mutex gatherMutex;
+	std::vector<znet::p2p::Candidate> gatheredCandidates;
 
 	std::string publicIp = "127.0.0.1";
 	bool useP2P = false;

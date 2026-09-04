@@ -10,13 +10,15 @@
 
 #include "GameBackend.h"
 #include "audio/gTeamVoice.h"
+#include "gipP2PClient.h"
 #include "znet/client.h"
 #include "znet/client_events.h"
 
 class GameBackendRemote : public GameBackend {
 public:
 	GameBackendRemote(const std::string& serverIp, uint16_t port);
-	GameBackendRemote(std::shared_ptr<znet::PeerSession> existingSession);
+	// A punched connection; the host inside keeps driving its session.
+	explicit GameBackendRemote(gipP2PSession punched);
 	~GameBackendRemote() override;
 
 	void start() override;
@@ -79,5 +81,7 @@ private:
 
 	gTeamVoice voiceClient;
 
+	// The punched session's socket and thread; null for a dialed connection.
+	std::unique_ptr<znet::p2p::Host> punchHost;
 	std::unique_ptr<znet::Client> client; // Declared last so it gets destroyed first
 };

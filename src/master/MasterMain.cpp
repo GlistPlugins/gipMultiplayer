@@ -1,6 +1,8 @@
 #include "gAppManager.h"
 #include "gBaseApp.h"
 #include "gMasterPackets.h"
+#include "znet/p2p/punch.h"
+#include "znet/p2p/relay_server.h"
 #include "znet/server.h"
 #include "znet/server_events.h"
 #include "znet/worker_signal.h"
@@ -54,6 +56,71 @@ std::string ColumnText(sqlite3_stmt* stmt, int column) {
 }
 
 // Renders a candidate list for logging.
+std::string JoinCandidates(const std::vector<znet::p2p::Candidate>& candidates) {
+    std::string out;
+    for (const auto& candidate : candidates) {
+        if (!out.empty()) out += ", ";
+        out += znet::p2p::GetCandidateTypeString(candidate.type) + " " + candidate.address->readable();
+    }
+    return out.empty() ? "(none)" : out;
+}
+
+// "ip:port" into its halves; false when there is no port.
+bool SplitHostPort(const std::string& text, std::string& host, uint16_t& port) {
+    const size_t colon = text.rfind(':');
+    if (colon == std::string::npos) return false;
+    try {
+        const int parsed = std::stoi(text.substr(colon + 1));
+        if (parsed < 0 || parsed > 65535) return false;
+        host = text.substr(0, colon);
+        port = static_cast<uint16_t>(parsed);
+        return true;
+    } catch (const std::exception&) {
+        return false;
+    }
+}
+
+// The candidates one side is told to punch: what the other side gathered,
+// reflexive first, with the master's own observation of it standing in when
+// no reflector answered, then its host addresses, then the relayed one.
+std::vector<znet::p2p::Candidate> BuildOffer(const std::string& observedIp, uint16_t punchPort,
+                                             const std::vector<znet::p2p::Candidate>& gathered,
+                                             const std::vector<std::string>& localIps,
+                                             const znet::p2p::Candidate* relayed) {
+    std::vector<znet::p2p::Candidate> out;
+    for (const auto& candidate : gathered) {
+        if (candidate.type == znet::p2p::CandidateType::Reflexive) out.push_back(candidate);
+    }
+    if (out.empty()) {
+        znet::p2p::Candidate reflexive;
+        reflexive.type = znet::p2p::CandidateType::Reflexive;
+        reflexive.address = znet::InetAddress::from(observedIp, punchPort);
+        if (reflexive.address) out.push_back(reflexive);
+    }
+    auto known = [&out](const znet::InetAddress& address) {
+        for (const auto& offered : out) {
+            if (offered.address->readable() == address.readable()) return true;
+        }
+        return false;
+    };
+    for (const auto& candidate : gathered) {
+        if (candidate.type == znet::p2p::CandidateType::Host && !known(*candidate.address)) out.push_back(candidate);
+    }
+    // a host that did not gather still reports its networks as strings
+    for (const auto& local : localIps) {
+        std::string host;
+        uint16_t port = 0;
+        if (!SplitHostPort(local, host, port)) continue;
+        znet::p2p::Candidate candidate;
+        candidate.type = znet::p2p::CandidateType::Host;
+        candidate.address = znet::InetAddress::from(host, port);
+        if (candidate.address && !known(*candidate.address)) out.push_back(candidate);
+    }
+    if (out.size() > znet::p2p::kMaxCandidates - 1) out.resize(znet::p2p::kMaxCandidates - 1);
+    if (relayed) out.push_back(*relayed);
+    return out;
+}
+
 std::string JoinCandidates(const std::vector<std::string>& candidates) {
     if (candidates.empty()) return "(none)";
     std::string out;
@@ -198,8 +265,9 @@ static RateLimiter gRateLimiter;
 
 class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket, gMasterUserLoginPacket, gMasterUserRegisterPacket, gMasterUserTokenLoginPacket, gMasterUserLogoutPacket> {
 public:
-    gMasterPacketHandler(const std::shared_ptr<znet::PeerSession>& s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db)
-        : session(s.get()), weakSession(s), serverList(sl), listMutex(m), db(db) {}
+    gMasterPacketHandler(const std::shared_ptr<znet::PeerSession>& s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db,
+                         znet::p2p::RelayServer* relay, const std::string& relayHost)
+        : session(s.get()), weakSession(s), serverList(sl), listMutex(m), db(db), relay(relay), relayHost(relayHost) {}
 
     void OnPacket(std::shared_ptr<gMasterRegisterPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
@@ -237,6 +305,7 @@ public:
                 s.hostSession = weakSession;
                 s.lastHeartbeat = 0.0f;
                 s.peerCandidates = candidates;
+                s.candidates = p->candidates;
                 assignedRoomCode = s.roomCode;
                 found = true;
                 break;
@@ -258,6 +327,7 @@ public:
             newServer.roomCode = assignedRoomCode;
             newServer.hostSession = weakSession;
             newServer.peerCandidates = candidates;
+            newServer.candidates = p->candidates;
             serverList.push_back(newServer);
         }
         std::cout << "[MasterServer] Registered server: " << p->name << " (" << actualIp << ") State: " << p->matchState << " Room: " << assignedRoomCode << " Dedicated: " << (p->isDedicated ? "YES" : "NO") << " P2P: " << (p->useP2P ? "YES" : "NO") << " Candidates: " << JoinCandidates(candidates) << std::endl;
@@ -376,24 +446,41 @@ public:
             std::string clientPublicIp = session->remote_address()->readable();
             size_t cColon = clientPublicIp.find(':');
             if (cColon != std::string::npos) clientPublicIp = clientPublicIp.substr(0, cColon);
+            std::string hostPublicIp;
+            uint16_t hostPunchPort = 0;
+            SplitHostPort(targetServer->ip, hostPublicIp, hostPunchPort);
 
             std::cout << "[MasterServer] Broker Handshake: Client(" << clientPublicIp << ":" << p->clientGamePort
                       << ") punching Host(" << targetServer->ip << ")" << std::endl;
 
-            auto execHost = std::make_shared<gMasterPunchExecutePacket>();
-            const std::string clientPublic = clientPublicIp + ":" + std::to_string(p->clientGamePort);
-            execHost->peerCandidates.push_back(clientPublic);
-            for (const auto& local : p->clientIps) {
-                if (local != clientPublic) execHost->peerCandidates.push_back(local);
+            // One relay port for the pair, the same on both sides, for when
+            // no direct candidate answers.
+            znet::p2p::Candidate relayed;
+            const znet::p2p::Candidate* relayedPtr = nullptr;
+            if (relay) {
+                znet::p2p::RelayServer::Allocation allocation;
+                const znet::Result result = relay->Allocate(allocation);
+                if (result == znet::Result::Success) {
+                    relayed.type = znet::p2p::CandidateType::Relayed;
+                    relayed.address = znet::InetAddress::from(relayHost.empty() ? "0.0.0.0" : relayHost, allocation.port);
+                    relayed.relay_token = allocation.token;
+                    relayedPtr = &relayed;
+                } else {
+                    std::cout << "[MasterServer]   no relay for this pair: " << znet::GetResultString(result) << std::endl;
+                }
             }
+
+            auto execHost = std::make_shared<gMasterPunchExecutePacket>();
+            execHost->candidates = BuildOffer(clientPublicIp, p->clientGamePort, p->candidates, {}, relayedPtr);
             execHost->isHost = true;
-            std::cout << "[MasterServer]   host punches to: " << JoinCandidates(execHost->peerCandidates) << std::endl;
+            std::cout << "[MasterServer]   host punches to: " << JoinCandidates(execHost->candidates) << std::endl;
             hostSession->SendPacket(execHost);
 
             auto execClient = std::make_shared<gMasterPunchExecutePacket>();
-            execClient->peerCandidates = targetServer->peerCandidates;
+            execClient->candidates = BuildOffer(hostPublicIp, hostPunchPort, targetServer->candidates,
+                                                targetServer->peerCandidates, relayedPtr);
             execClient->isHost = false;
-            std::cout << "[MasterServer]   client punches to: " << JoinCandidates(execClient->peerCandidates) << std::endl;
+            std::cout << "[MasterServer]   client punches to: " << JoinCandidates(execClient->candidates) << std::endl;
             session->SendPacket(execClient);
         }
     }
@@ -714,6 +801,8 @@ private:
     std::vector<gServerInfo>& serverList;
     std::mutex& listMutex;
     sqlite3* db;
+    znet::p2p::RelayServer* relay;  // null without one; owned by the app
+    std::string relayHost;          // empty means this host
 };
 
 #include "gDatabase.h"
@@ -743,18 +832,31 @@ static std::shared_ptr<znet::Codec> makeMasterCodec() {
 
 
 
+struct gRelayOptions {
+    bool enabled = false;
+    // The host peers reach the relay at; empty means the one they reached the
+    // master at, which the clients substitute.
+    std::string publicHost;
+    uint16_t controlPort = 25011;
+    uint16_t portMin = 0;
+    uint16_t portMax = 0;
+};
+
 class gMasterServerApp : public gBaseApp {
 public:
     std::unique_ptr<znet::Server> server;
+    std::unique_ptr<znet::p2p::RelayServer> relay;
     std::vector<gServerInfo> serverList;
     std::mutex listMutex;
     uint16_t port = 25010;
+    gRelayOptions relayOptions;
     sqlite3* db = nullptr;
 
-    gMasterServerApp(uint16_t p) : port(p) {}
+    gMasterServerApp(uint16_t p, gRelayOptions relayOpts) : port(p), relayOptions(std::move(relayOpts)) {}
 
     ~gMasterServerApp() override {
         server.reset();
+        relay.reset();
         if (db) sqlite3_close(db);
     }
 
@@ -802,6 +904,24 @@ public:
 
         appmanager->setTargetFramerate(60);
 
+        if (relayOptions.enabled) {
+            znet::p2p::RelayServer::Config config;
+            config.control_port = relayOptions.controlPort;
+            config.port_min = relayOptions.portMin;
+            config.port_max = relayOptions.portMax;
+            relay = std::make_unique<znet::p2p::RelayServer>(config);
+            const znet::Result result = relay->Start();
+            if (result != znet::Result::Success) {
+                std::cerr << "[MasterServer] Relay failed to start: " << znet::GetResultString(result) << std::endl;
+                relay.reset();
+            } else {
+                std::cout << "[MasterServer] Relay up: control port " << relayOptions.controlPort
+                          << ", allocations from " << (relayOptions.portMin == 0 ? std::string("ephemeral ports")
+                                                       : std::to_string(relayOptions.portMin) + "-" + std::to_string(relayOptions.portMax))
+                          << std::endl;
+            }
+        }
+
         server = std::make_unique<znet::Server>(znet::ServerConfig{"0.0.0.0", port, std::chrono::seconds(10), znet::ConnectionType::TCP});
 
         server->SetEventCallback([this](znet::Event& ev) {
@@ -809,7 +929,8 @@ public:
             d.Dispatch<znet::IncomingClientConnectedEvent>([this](znet::IncomingClientConnectedEvent& e) {
                 auto sess = e.session();
                 sess->SetCodec(makeMasterCodec());
-                sess->SetHandler(std::make_shared<gMasterPacketHandler>(sess, serverList, listMutex, db));
+                sess->SetHandler(std::make_shared<gMasterPacketHandler>(sess, serverList, listMutex, db,
+                                                                        relay.get(), relayOptions.publicHost));
                 return false;
             });
         });
@@ -841,18 +962,38 @@ public:
 
 int main(int argc, char **argv) {
     uint16_t port = 25010;
+    gRelayOptions relay;
+    auto parsePort = [](const std::string& text, uint16_t& out) {
+        try {
+            int parsed = std::stoi(text);
+            if (parsed < 1 || parsed > 65535) return false;
+            out = static_cast<uint16_t>(parsed);
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    };
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--port" && i + 1 < argc) {
-            try {
-                int parsed = std::stoi(argv[++i]);
-                if (parsed < 1 || parsed > 65535) throw std::out_of_range("port");
-                port = static_cast<uint16_t>(parsed);
-            } catch (const std::exception&) {
-                std::cerr << "Invalid --port value, using " << port << std::endl;
+            if (!parsePort(argv[++i], port)) std::cerr << "Invalid --port value, using " << port << std::endl;
+        } else if (arg == "--relay") {
+            relay.enabled = true;
+        } else if (arg == "--relay-ip" && i + 1 < argc) {
+            relay.publicHost = argv[++i];
+        } else if (arg == "--relay-control" && i + 1 < argc) {
+            if (!parsePort(argv[++i], relay.controlPort)) std::cerr << "Invalid --relay-control value, using " << relay.controlPort << std::endl;
+        } else if (arg == "--relay-ports" && i + 1 < argc) {
+            // min-max, the UDP range to open in the firewall
+            std::string range = argv[++i];
+            const size_t dash = range.find('-');
+            if (dash == std::string::npos || !parsePort(range.substr(0, dash), relay.portMin) ||
+                !parsePort(range.substr(dash + 1), relay.portMax) || relay.portMax < relay.portMin) {
+                std::cerr << "--relay-ports wants min-max, e.g. 30000-30999" << std::endl;
+                return 1;
             }
         }
     }
-    gStartEngine(new gMasterServerApp(port), "MasterServer", G_LOOPMODE_NORMAL);
+    gStartEngine(new gMasterServerApp(port, relay), "MasterServer", G_LOOPMODE_NORMAL);
     return 0;
 }

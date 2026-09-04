@@ -2,6 +2,8 @@
 #include "znet/packet.h"
 #include "znet/packet_serializer.h"
 #include "znet/buffer.h"
+#include "znet/p2p/punch.h"
+#include "znet/p2p/rendezvous.h"
 #include "znet/peer_session.h"
 #include <memory>
 #include <string>
@@ -31,6 +33,9 @@ enum MasterPacketId {
 struct gServerInfo {
     std::string ip;
     std::vector<std::string> peerCandidates;
+    // What the host gathered from its punch socket (znet::p2p::Host::Gather);
+    // empty for a host that does not punch.
+    std::vector<znet::p2p::Candidate> candidates;
     std::string name;
     uint32_t currentPlayers = 0;
     uint32_t maxPlayers = 0;
@@ -61,6 +66,8 @@ public:
     bool hasPassword = false;
     bool isDedicated = false;
     bool useP2P = false;
+    // What the punch socket gathered; reflexive first. Empty until it has.
+    std::vector<znet::p2p::Candidate> candidates;
 };
 
 class gMasterRegisterSerializer : public znet::PacketSerializer<gMasterRegisterPacket> {
@@ -76,6 +83,7 @@ public:
         b->WriteInt(p->hasPassword ? 1 : 0);
         b->WriteInt(p->isDedicated ? 1 : 0);
         b->WriteInt(p->useP2P ? 1 : 0);
+        znet::p2p::detail::WriteCandidates(b, p->candidates);
         return b;
     }
     std::shared_ptr<gMasterRegisterPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
@@ -90,6 +98,7 @@ public:
         p->hasPassword = b->ReadInt<int>() != 0;
         p->isDedicated = b->ReadInt<int>() != 0;
         p->useP2P = b->ReadInt<int>() != 0;
+        if (!znet::p2p::detail::ReadCandidates(b, p->candidates)) return nullptr;
         return p;
     }
 };
@@ -202,8 +211,8 @@ class gMasterPunchRequestPacket : public znet::Packet {
 public:
     gMasterPunchRequestPacket() : Packet(PACKET_GIP_MASTER_PUNCH_REQ) {}
     std::string targetIdentifier;
-    // Every address the client can be reached at.
-    std::vector<std::string> clientIps;
+    // What the client's punch socket gathered; reflexive first.
+    std::vector<znet::p2p::Candidate> candidates;
     uint16_t clientGamePort = 0;
 };
 
@@ -211,14 +220,14 @@ class gMasterPunchRequestSerializer : public znet::PacketSerializer<gMasterPunch
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterPunchRequestPacket> p, std::shared_ptr<znet::Buffer> b) override {
         b->WriteString(p->targetIdentifier);
-        b->WriteVector(p->clientIps, &znet::Buffer::WriteString);
+        znet::p2p::detail::WriteCandidates(b, p->candidates);
         b->WriteInt<uint16_t>(p->clientGamePort);
         return b;
     }
     std::shared_ptr<gMasterPunchRequestPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterPunchRequestPacket>();
         p->targetIdentifier = b->ReadString();
-        p->clientIps = b->ReadVector<std::string>(&znet::Buffer::ReadString);
+        if (!znet::p2p::detail::ReadCandidates(b, p->candidates)) return nullptr;
         p->clientGamePort = b->ReadInt<uint16_t>();
         return p;
     }
@@ -227,20 +236,23 @@ public:
 class gMasterPunchExecutePacket : public znet::Packet {
 public:
     gMasterPunchExecutePacket() : Packet(PACKET_GIP_MASTER_PUNCH_EXEC) {}
-    std::vector<std::string> peerCandidates;
+    // The other side's candidates, reflexive first, then host, then the
+    // relayed one when the master runs a relay. An unspecified host
+    // (0.0.0.0) means the master's own.
+    std::vector<znet::p2p::Candidate> candidates;
     bool isHost = false;
 };
 
 class gMasterPunchExecuteSerializer : public znet::PacketSerializer<gMasterPunchExecutePacket> {
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterPunchExecutePacket> p, std::shared_ptr<znet::Buffer> b) override {
-        b->WriteVector(p->peerCandidates, &znet::Buffer::WriteString);
+        znet::p2p::detail::WriteCandidates(b, p->candidates);
         b->WriteInt<int>(p->isHost ? 1 : 0);
         return b;
     }
     std::shared_ptr<gMasterPunchExecutePacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterPunchExecutePacket>();
-        p->peerCandidates = b->ReadVector<std::string>(&znet::Buffer::ReadString);
+        if (!znet::p2p::detail::ReadCandidates(b, p->candidates)) return nullptr;
         p->isHost = b->ReadInt<int>() == 1;
         return p;
     }

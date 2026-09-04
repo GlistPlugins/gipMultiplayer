@@ -7,7 +7,7 @@
 #include "master/gMasterPackets.h"
 #include "znet/client.h"
 #include "znet/client_events.h"
-#include "znet/p2p/dialer.h"
+#include "znet/p2p/punch.h"
 #include "znet/inet_addr.h"
 
 constexpr uint64_t LOCAL_HOST_VOICE_CONN_ID = 0xFFFFFFFFFFFFFFFFULL;
@@ -234,13 +234,39 @@ znet::p2p::Host* GameBackendLocal::ensurePunchHost() {
 	return punchHost.get();
 }
 
+void GameBackendLocal::gatherCandidates() {
+	auto* host = ensurePunchHost();
+	if (!host) return;
+	std::vector<std::shared_ptr<znet::InetAddress>> reflectors;
+	std::shared_ptr<znet::InetAddress> reflector = znet::InetAddress::from(targetMasterIp, targetMasterRelayPort);
+	if (reflector && reflector->is_valid()) reflectors.push_back(reflector);
+	host->Gather(reflectors, std::chrono::seconds(2), [this](znet::Result result, std::vector<znet::p2p::Candidate> candidates) {
+		if (result != znet::Result::Success) {
+			gLogw("GameBackendLocal") << "[Host] Gather: " << znet::GetResultString(result) << ", registering the local addresses";
+		}
+		{
+			std::lock_guard<std::mutex> lk(gatherMutex);
+			gatheredCandidates = std::move(candidates);
+		}
+		gLogi("GameBackendLocal") << "[Host] Gathered " << gatheredCandidates.size() << " candidates";
+		// the register that went out on connect had none of these
+		auto session = masterClient ? masterClient->client_session() : nullptr;
+		if (isConnectedToMaster && session) session->SendPacket(makeRegisterPacket());
+	});
+}
+
+std::shared_ptr<znet::InetAddress> GameBackendLocal::atMaster(const std::shared_ptr<znet::InetAddress>& address) const {
+	if (!address || !znet::p2p::IsUnspecifiedHost(*address)) return address;
+	return znet::InetAddress::from(targetMasterIp, address->port());
+}
+
 void GameBackendLocal::onPunchResolved(znet::Result result, std::shared_ptr<znet::PeerSession> sess) {
 	if (result != znet::Result::Success || !sess) {
 		gLogw("GameBackendLocal") << "[Host] Punch failed: " << znet::GetResultString(result);
 		return;
 	}
 	adoptSession(sess);
-	gLogi("GameBackendLocal") << "[Host] Punch successful!";
+	gLogi("GameBackendLocal") << "[Host] Punch successful via " << sess->remote_address()->readable();
 }
 
 uint16_t GameBackendLocal::advertisedPort() const {
@@ -279,17 +305,27 @@ std::shared_ptr<gMasterRegisterPacket> GameBackendLocal::makeRegisterPacket() co
     reg->hasPassword = !serverPassword.empty();
     reg->isDedicated = isDedicatedServer;
     reg->useP2P = useP2P;
+    {
+        std::lock_guard<std::mutex> lk(gatherMutex);
+        reg->candidates = gatheredCandidates;
+    }
     return reg;
 }
 
-void GameBackendLocal::registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, const std::string& pubIp, bool useP2P) {
+void GameBackendLocal::registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort, const std::string& pubIp, bool useP2P) {
     this->serverName = name;
     this->isPrivateServer = isPrivate;
     this->serverPassword = password;
     this->targetMasterIp = masterIp;
     this->targetMasterPort = masterPort;
+    this->targetMasterRelayPort = masterRelayPort;
     this->publicIp = pubIp;
     this->useP2P = useP2P;
+
+    // Only a host that punches has candidates to gather; the register that
+    // goes out on connect carries whatever is in by then, and the gather
+    // callback sends another once the rest arrives.
+    if (useP2P) gatherCandidates();
 
     masterClient = std::make_unique<znet::Client>(znet::ClientConfig{targetMasterIp, targetMasterPort, std::chrono::seconds(5), znet::ConnectionType::TCP});
     
@@ -324,28 +360,24 @@ void GameBackendLocal::registerWithMasterServer(const std::string& name, bool is
                     });
                 }
                 void OnPacket(std::shared_ptr<gMasterPunchExecutePacket> p) {
-                    gLogi("GameBackendLocal") << "[Host] Master requested punch to " << p->peerCandidates.size() << " candidates.";
+                    gLogi("GameBackendLocal") << "[Host] Master requested punch to " << p->candidates.size() << " candidates.";
 
                     auto* host = backend->ensurePunchHost();
                     if (!host) return;
 
-                    std::vector<std::shared_ptr<znet::InetAddress>> candidates;
-                    for (const auto& c : p->peerCandidates) {
-                        size_t colon = c.find(':');
-                        if (colon == std::string::npos) continue;
-                        try {
-                            candidates.push_back(znet::InetAddress::from(
-                                c.substr(0, colon),
-                                static_cast<uint16_t>(std::stoi(c.substr(colon + 1)))));
-                        } catch (const std::exception&) {
-                            gLogw("GameBackendLocal") << "[Host] Bad candidate: " << c;
-                        }
+                    znet::p2p::PunchOffer offer;
+                    for (znet::p2p::Candidate candidate : p->candidates) {
+                        candidate.address = backend->atMaster(candidate.address);
+                        if (candidate.address && candidate.address->is_valid()) offer.candidates.push_back(std::move(candidate));
                     }
-                    if (candidates.empty()) return;
+                    if (offer.candidates.empty()) return;
+                    // the host accepts, so its options decide encryption and compression
+                    offer.is_initiator = !p->isHost;
+                    offer.timeout = std::chrono::seconds(10);
 
                     // Asynchronous, so no thread of our own and nothing blocked here.
                     GameBackendLocal* b = backend;
-                    host->StartPunch(candidates, 0, !p->isHost, std::chrono::seconds(10),
+                    host->Punch(std::move(offer),
                         [b](znet::Result result, std::shared_ptr<znet::PeerSession> sess) {
                             b->onPunchResolved(result, std::move(sess));
                         });

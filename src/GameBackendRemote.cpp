@@ -83,8 +83,9 @@ GameBackendRemote::GameBackendRemote(const std::string& serverIp, uint16_t port)
 	: serverip(serverIp), port(port) {
 }
 
-GameBackendRemote::GameBackendRemote(std::shared_ptr<znet::PeerSession> existingSession) {
-	session = existingSession;
+GameBackendRemote::GameBackendRemote(gipP2PSession punched)
+	: punchHost(std::move(punched.host)) {
+	session = std::move(punched.session);
 }
 
 GameBackendRemote::~GameBackendRemote() {
@@ -99,6 +100,7 @@ GameBackendRemote::~GameBackendRemote() {
 	// Outside the lock: Disconnect() waits on the network thread, which is
 	// where onDisconnected runs and takes the same mutex.
 	if (closing) closing->Close();
+	if (punchHost) punchHost->Stop();
 	if (client) client->Disconnect();
 }
 

@@ -25,6 +25,9 @@ namespace {
 
 const std::string MASTER_IP = "martyr.irrl.dev";
 const uint16_t MASTER_PORT = 25010;
+// The master's relay control port: the reflector punch sockets gather from,
+// and where relayed connections fall back to.
+const uint16_t MASTER_RELAY_PORT = 25011;
 const uint16_t DEFAULT_GAME_PORT = 25000;
 constexpr auto AUTH_TIMEOUT = std::chrono::seconds(15);
 
@@ -269,7 +272,7 @@ void NetworkManager::hostLobby(const std::string& playerName, const std::string&
 
     // Bare host: the port is appended downstream, and the master replaces
     // this with the address it observes. Real addresses ride in localIps.
-    host->registerWithMasterServer(name, isPrivate, password, MASTER_IP, MASTER_PORT,
+    host->registerWithMasterServer(name, isPrivate, password, MASTER_IP, MASTER_PORT, MASTER_RELAY_PORT,
                                    znet::GetLoopbackAddress(znet::InetProtocolVersion::IPv4));
 
     auto p = std::make_shared<LobbyJoinPacket>();
@@ -295,8 +298,8 @@ void NetworkManager::joinLobby(const std::string& ipOrCode, const std::string& p
         std::shared_ptr<GameBackend> joined;
         if (!forceDirect) {
             gipP2PClient client;
-            if (auto sess = client.joinSession(MASTER_IP, MASTER_PORT, ipOrCode, clientPort)) {
-                joined = std::make_shared<GameBackendRemote>(sess);
+            if (auto punched = client.joinSession(MASTER_IP, MASTER_PORT, MASTER_RELAY_PORT, ipOrCode, clientPort)) {
+                joined = std::make_shared<GameBackendRemote>(std::move(punched));
             }
         }
         if (!joined) {
