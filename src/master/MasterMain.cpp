@@ -25,6 +25,8 @@
 
 #include "sqlite3.h"
 
+#include <cxxopts.hpp>
+
 std::string GenerateRoomCode() {
     const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     static thread_local std::mt19937 gen(std::random_device{}());
@@ -85,7 +87,6 @@ bool SplitHostPort(const std::string& text, std::string& host, uint16_t& port) {
 // no reflector answered, then its host addresses, then the relayed one.
 std::vector<znet::p2p::Candidate> BuildOffer(const std::string& observedIp, uint16_t punchPort,
                                              const std::vector<znet::p2p::Candidate>& gathered,
-                                             const std::vector<std::string>& localIps,
                                              const znet::p2p::Candidate* relayed) {
     std::vector<znet::p2p::Candidate> out;
     for (const auto& candidate : gathered) {
@@ -106,18 +107,23 @@ std::vector<znet::p2p::Candidate> BuildOffer(const std::string& observedIp, uint
     for (const auto& candidate : gathered) {
         if (candidate.type == znet::p2p::CandidateType::Host && !known(*candidate.address)) out.push_back(candidate);
     }
-    // a host that did not gather still reports its networks as strings
-    for (const auto& local : localIps) {
-        std::string host;
-        uint16_t port = 0;
-        if (!SplitHostPort(local, host, port)) continue;
-        znet::p2p::Candidate candidate;
-        candidate.type = znet::p2p::CandidateType::Host;
-        candidate.address = znet::InetAddress::from(host, port);
-        if (candidate.address && !known(*candidate.address)) out.push_back(candidate);
-    }
     if (out.size() > znet::p2p::kMaxCandidates - 1) out.resize(znet::p2p::kMaxCandidates - 1);
     if (relayed) out.push_back(*relayed);
+    return out;
+}
+
+// Readable host addresses for same-NAT matching and the browser's private
+// address substitution: the observed endpoint first, then the host's own
+// networks from its typed candidates.
+std::vector<std::string> PeerAddresses(const std::string& observed,
+                                       const std::vector<znet::p2p::Candidate>& candidates) {
+    std::vector<std::string> out;
+    out.push_back(observed);
+    for (const auto& candidate : candidates) {
+        if (candidate.type != znet::p2p::CandidateType::Host || !candidate.address) continue;
+        const std::string readable = candidate.address->readable();
+        if (readable != observed) out.push_back(readable);
+    }
     return out;
 }
 
@@ -274,23 +280,15 @@ public:
         bool found = false;
         std::string assignedRoomCode = "";
 
-        // Extract public IP from session
-        std::string remoteIp = session->remote_address()->readable();
-        size_t rColon = remoteIp.find(':');
-        if (rColon != std::string::npos) remoteIp = remoteIp.substr(0, rColon);
+        // Observed host from the session, advertised port from the packet.
+        std::string ignoredHost;
+        uint16_t advertisedPort = 25000;
+        SplitHostPort(p->ip, ignoredHost, advertisedPort);
+        std::string actualIp = session->remote_address()->WithPort(advertisedPort)->readable();
 
-        // Parse the provided port from p->ip
-        std::string portStr = "25000";
-        size_t colon = p->ip.find(':');
-        if (colon != std::string::npos) portStr = p->ip.substr(colon + 1);
-        std::string actualIp = remoteIp + ":" + portStr;
-
-        // Observed address first, then every network the host reports.
-        std::vector<std::string> candidates;
-        candidates.push_back(actualIp);
-        for (const auto& local : p->localIps) {
-            if (local != actualIp) candidates.push_back(local);
-        }
+        // Observed endpoint first, then the host's own networks, for same-NAT
+        // matching and the private-address substitution in the browser list.
+        std::vector<std::string> candidates = PeerAddresses(actualIp, p->candidates);
 
         for (auto& s : serverList) {
             if (s.ip == actualIp) {
@@ -340,14 +338,10 @@ public:
     void OnPacket(std::shared_ptr<gMasterHeartbeatPacket> p) {
         std::lock_guard<std::mutex> lk(listMutex);
 
-        std::string remoteIp = session->remote_address()->readable();
-        size_t rColon = remoteIp.find(':');
-        if (rColon != std::string::npos) remoteIp = remoteIp.substr(0, rColon);
-
-        std::string portStr = "25000";
-        size_t colon = p->ip.find(':');
-        if (colon != std::string::npos) portStr = p->ip.substr(colon + 1);
-        std::string actualIp = remoteIp + ":" + portStr;
+        std::string ignoredHost;
+        uint16_t advertisedPort = 25000;
+        SplitHostPort(p->ip, ignoredHost, advertisedPort);
+        std::string actualIp = session->remote_address()->WithPort(advertisedPort)->readable();
 
         bool matched = false;
         for (auto& s : serverList) {
@@ -471,14 +465,14 @@ public:
             }
 
             auto execHost = std::make_shared<gMasterPunchExecutePacket>();
-            execHost->candidates = BuildOffer(clientPublicIp, p->clientGamePort, p->candidates, {}, relayedPtr);
+            execHost->candidates = BuildOffer(clientPublicIp, p->clientGamePort, p->candidates, relayedPtr);
             execHost->isHost = true;
             std::cout << "[MasterServer]   host punches to: " << JoinCandidates(execHost->candidates) << std::endl;
             hostSession->SendPacket(execHost);
 
             auto execClient = std::make_shared<gMasterPunchExecutePacket>();
             execClient->candidates = BuildOffer(hostPublicIp, hostPunchPort, targetServer->candidates,
-                                                targetServer->peerCandidates, relayedPtr);
+                                                relayedPtr);
             execClient->isHost = false;
             std::cout << "[MasterServer]   client punches to: " << JoinCandidates(execClient->candidates) << std::endl;
             session->SendPacket(execClient);
@@ -955,30 +949,36 @@ public:
 };
 
 int main(int argc, char **argv) {
-    uint16_t port = 25010;
+    cxxopts::Options options("MasterServer",
+                             "gipMultiplayer master and broker server");
+    options.add_options()
+        ("port", "TCP port to broker on",
+         cxxopts::value<uint16_t>()->default_value("25010"))
+        ("relay", "Enable the embedded UDP relay fallback")
+        ("relay-ip", "Public host peers reach the relay at; empty means the "
+                     "host they reached the master at",
+         cxxopts::value<std::string>()->default_value(""))
+        ("relay-port", "UDP port the relay binds, forwards and reflects on",
+         cxxopts::value<uint16_t>()->default_value("25011"))
+        ("h,help", "Show this help and exit");
+
+    uint16_t port;
     gRelayOptions relay;
-    auto parsePort = [](const std::string& text, uint16_t& out) {
-        try {
-            int parsed = std::stoi(text);
-            if (parsed < 1 || parsed > 65535) return false;
-            out = static_cast<uint16_t>(parsed);
-            return true;
-        } catch (const std::exception&) {
-            return false;
+    try {
+        const auto args = options.parse(argc, argv);
+        if (args.count("help")) {
+            std::cout << options.help() << std::endl;
+            return 0;
         }
-    };
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg == "--port" && i + 1 < argc) {
-            if (!parsePort(argv[++i], port)) std::cerr << "Invalid --port value, using " << port << std::endl;
-        } else if (arg == "--relay") {
-            relay.enabled = true;
-        } else if (arg == "--relay-ip" && i + 1 < argc) {
-            relay.publicHost = argv[++i];
-        } else if (arg == "--relay-port" && i + 1 < argc) {
-            if (!parsePort(argv[++i], relay.port)) std::cerr << "Invalid --relay-port value, using " << relay.port << std::endl;
-        }
+        port = args["port"].as<uint16_t>();
+        relay.enabled = args.count("relay") > 0;
+        relay.publicHost = args["relay-ip"].as<std::string>();
+        relay.port = args["relay-port"].as<uint16_t>();
+    } catch (const cxxopts::exceptions::exception& e) {
+        std::cerr << "MasterServer: " << e.what() << std::endl;
+        return 1;
     }
+
     gStartEngine(new gMasterServerApp(port, relay), "MasterServer", G_LOOPMODE_NORMAL);
     return 0;
 }

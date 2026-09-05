@@ -271,7 +271,7 @@ void NetworkManager::hostLobby(const std::string& playerName, const std::string&
     host->start();
 
     // Bare host: the port is appended downstream, and the master replaces
-    // this with the address it observes. Real addresses ride in localIps.
+    // this with the address it observes. Real addresses ride in the candidates.
     host->registerWithMasterServer(name, isPrivate, password, MASTER_IP, MASTER_PORT, MASTER_RELAY_PORT,
                                    znet::GetLoopbackAddress(znet::InetProtocolVersion::IPv4));
 

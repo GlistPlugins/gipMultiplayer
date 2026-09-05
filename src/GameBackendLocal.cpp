@@ -8,6 +8,7 @@
 #include "znet/client.h"
 #include "znet/client_events.h"
 #include "znet/p2p/punch.h"
+#include "znet/p2p/internal/gather.h"
 #include "znet/inet_addr.h"
 
 constexpr uint64_t LOCAL_HOST_VOICE_CONN_ID = 0xFFFFFFFFFFFFFFFFULL;
@@ -279,15 +280,6 @@ std::string GameBackendLocal::advertisedAddress() const {
 	return publicIp + ":" + std::to_string(advertisedPort());
 }
 
-std::vector<std::string> GameBackendLocal::localAddresses() const {
-	const std::string suffix = ":" + std::to_string(advertisedPort());
-	std::vector<std::string> out;
-	for (const auto& local : znet::GetLocalAddresses(znet::InetProtocolVersion::IPv4)) {
-		out.push_back(local + suffix);
-	}
-	return out;
-}
-
 std::string GameBackendLocal::roomCode() const {
     std::lock_guard<std::mutex> lk(roomCodeMutex);
     return assignedRoomCode;
@@ -296,7 +288,6 @@ std::string GameBackendLocal::roomCode() const {
 std::shared_ptr<gMasterRegisterPacket> GameBackendLocal::makeRegisterPacket() const {
     auto reg = std::make_shared<gMasterRegisterPacket>();
     reg->ip = advertisedAddress();
-    reg->localIps = localAddresses();
     reg->name = serverName;
     reg->currentPlayers = playerCount();
     reg->maxPlayers = NetworkManager::getInstance()->getLobbyTeamSize() * 2;
@@ -308,6 +299,13 @@ std::shared_ptr<gMasterRegisterPacket> GameBackendLocal::makeRegisterPacket() co
     {
         std::lock_guard<std::mutex> lk(gatherMutex);
         reg->candidates = gatheredCandidates;
+    }
+    // This host's local network addresses as host candidates, so a peer on a
+    // shared network reaches it directly. Deduped against the gathered set.
+    for (auto& local : znet::p2p::internal::LocalCandidates(advertisedPort())) {
+        if (!znet::p2p::internal::ContainsAddress(reg->candidates, *local.address)) {
+            reg->candidates.push_back(std::move(local));
+        }
     }
     return reg;
 }

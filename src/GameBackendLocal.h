@@ -102,9 +102,8 @@ protected:
 	std::shared_ptr<gMasterRegisterPacket> makeRegisterPacket() const;
 	// Port peers are told to use; punching runs on a separate socket.
 	uint16_t advertisedPort() const;
-	// Advertised "host:port", and every local network at that same port.
+	// Advertised "host:port" the master pairs with the address it observes.
 	std::string advertisedAddress() const;
-	std::vector<std::string> localAddresses() const;
 
 	// Wires a session with the codec and handler the accept path uses, whether
 	// it arrived from the listener or from a punch.

@@ -56,8 +56,6 @@ public:
     gMasterRegisterPacket() : Packet(PACKET_GIP_MASTER_REGISTER) {}
     // Advertised address; every candidate below shares its port.
     std::string ip;
-    // Every address this host has, for peers on any shared network.
-    std::vector<std::string> localIps;
     std::string name;
     uint32_t currentPlayers = 0;
     uint32_t maxPlayers = 0;
@@ -74,7 +72,6 @@ class gMasterRegisterSerializer : public znet::PacketSerializer<gMasterRegisterP
 public:
     std::shared_ptr<znet::Buffer> SerializeTyped(std::shared_ptr<gMasterRegisterPacket> p, std::shared_ptr<znet::Buffer> b) override {
         b->WriteString(p->ip);
-        b->WriteVector(p->localIps, &znet::Buffer::WriteString);
         b->WriteString(p->name);
         b->WriteInt(p->currentPlayers);
         b->WriteInt(p->maxPlayers);
@@ -89,7 +86,6 @@ public:
     std::shared_ptr<gMasterRegisterPacket> DeserializeTyped(std::shared_ptr<znet::Buffer> b) override {
         auto p = std::make_shared<gMasterRegisterPacket>();
         p->ip = b->ReadString();
-        p->localIps = b->ReadVector<std::string>(&znet::Buffer::ReadString);
         p->name = b->ReadString();
         p->currentPlayers = b->ReadInt<uint32_t>();
         p->maxPlayers = b->ReadInt<uint32_t>();
