@@ -23,8 +23,7 @@ public:
     // Gathers this socket's candidates against the master's relay, asks the
     // master to broker roomCode/IP, punches on what comes back (the relay
     // included) and returns the ready session. Blocks for the whole flow.
-    // extraReflector is an optional second reflector on a distinct IP; gathering
-    // from both classifies the NAT. Null when the master runs none.
+    // extraReflector is an optional second reflector on a distinct IP, or null.
     gipP2PSession joinSession(const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort,
                               std::shared_ptr<znet::InetAddress> extraReflector,
                               const std::string& targetIdentifier, uint16_t localGamePort);

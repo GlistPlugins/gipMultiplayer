@@ -85,8 +85,7 @@ protected:
 public:
 	// masterRelayPort is the master's relay port, the reflector the punch
 	// socket gathers its public mapping from. extraReflector is an optional
-	// second reflector on a distinct IP; gathering from both classifies the
-	// NAT. Null when the master runs none.
+	// second reflector on a distinct IP, or null.
 	void registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort, std::shared_ptr<znet::InetAddress> extraReflector, const std::string& publicIp, bool useP2P = false);
 	void update(float deltaTime) override;
 
@@ -100,8 +99,7 @@ protected:
 	std::string targetMasterIp = "127.0.0.1";
 	uint16_t targetMasterPort = 25010;
 	uint16_t targetMasterRelayPort = 25011;
-	// A second reflector on a distinct IP, or null; gathering from both tells
-	// a symmetric NAT from a punchable one.
+	// A second reflector on a distinct IP, or null. See MASTER_REFLECTOR2_IP.
 	std::shared_ptr<znet::InetAddress> targetExtraReflector;
 	// Both the register and the heartbeat send one, so it is built in one place.
 	std::shared_ptr<gMasterRegisterPacket> makeRegisterPacket() const;

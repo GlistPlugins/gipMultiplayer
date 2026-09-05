@@ -845,7 +845,7 @@ class gMasterServerApp : public gBaseApp {
 public:
     std::unique_ptr<znet::Server> server;
     std::unique_ptr<znet::p2p::RelayServer> relay;
-    // a second reflector on a distinct IP; only reflects, never pairs
+    // reflect-only; never pairs (see gRelayOptions::reflector2Ip)
     std::unique_ptr<znet::p2p::RelayServer> reflector2;
     std::vector<gServerInfo> serverList;
     std::mutex listMutex;
@@ -918,8 +918,7 @@ public:
             }
         }
 
-        // A second reflector on a distinct IP lets peers classify their NAT.
-        // Bound to that specific IP so its replies carry the right source.
+        // The optional second reflector; see gRelayOptions::reflector2Ip.
         if (!relayOptions.reflector2Ip.empty()) {
             znet::p2p::RelayServerConfig config;
             config.bind_address = relayOptions.reflector2Ip;

@@ -241,7 +241,6 @@ void GameBackendLocal::gatherCandidates() {
 	std::vector<std::shared_ptr<znet::InetAddress>> reflectors;
 	std::shared_ptr<znet::InetAddress> reflector = znet::InetAddress::from(targetMasterIp, targetMasterRelayPort);
 	if (reflector && reflector->is_valid()) reflectors.push_back(reflector);
-	// a second reflector on a distinct IP is what lets the gather classify the NAT
 	if (targetExtraReflector && targetExtraReflector->is_valid()) reflectors.push_back(targetExtraReflector);
 	host->Gather(reflectors, std::chrono::seconds(2), [this](znet::p2p::Host::GatherResult result) {
 		if (result.result != znet::Result::Success) {

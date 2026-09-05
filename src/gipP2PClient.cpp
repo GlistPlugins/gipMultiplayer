@@ -112,7 +112,6 @@ gipP2PSession gipP2PClient::joinSession(const std::string& masterIp, uint16_t ma
     std::shared_ptr<znet::InetAddress> reflector = znet::InetAddress::from(masterIp, masterRelayPort);
     std::vector<std::shared_ptr<znet::InetAddress>> reflectors;
     if (reflector && reflector->is_valid()) reflectors.push_back(reflector);
-    // a second reflector on a distinct IP is what lets the gather classify the NAT
     if (extraReflector && extraReflector->is_valid()) reflectors.push_back(extraReflector);
     host->Gather(reflectors, GATHER_TIMEOUT, [gathered](znet::p2p::Host::GatherResult result) {
         if (result.result != znet::Result::Success) {
