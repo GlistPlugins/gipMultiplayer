@@ -241,15 +241,17 @@ void GameBackendLocal::gatherCandidates() {
 	std::vector<std::shared_ptr<znet::InetAddress>> reflectors;
 	std::shared_ptr<znet::InetAddress> reflector = znet::InetAddress::from(targetMasterIp, targetMasterRelayPort);
 	if (reflector && reflector->is_valid()) reflectors.push_back(reflector);
-	host->Gather(reflectors, std::chrono::seconds(2), [this](znet::Result result, std::vector<znet::p2p::Candidate> candidates) {
-		if (result != znet::Result::Success) {
-			gLogw("GameBackendLocal") << "[Host] Gather: " << znet::GetResultString(result) << ", registering the local addresses";
+	// a second reflector on a distinct IP is what lets the gather classify the NAT
+	if (targetExtraReflector && targetExtraReflector->is_valid()) reflectors.push_back(targetExtraReflector);
+	host->Gather(reflectors, std::chrono::seconds(2), [this](znet::p2p::Host::GatherResult result) {
+		if (result.result != znet::Result::Success) {
+			gLogw("GameBackendLocal") << "[Host] Gather: " << znet::GetResultString(result.result) << ", registering the local addresses";
 		}
 		{
 			std::lock_guard<std::mutex> lk(gatherMutex);
-			gatheredCandidates = std::move(candidates);
+			gatheredCandidates = std::move(result.candidates);
 		}
-		gLogi("GameBackendLocal") << "[Host] Gathered " << gatheredCandidates.size() << " candidates";
+		gLogi("GameBackendLocal") << "[Host] Gathered " << gatheredCandidates.size() << " candidates (NAT " << znet::p2p::GetNatTypeString(result.nat_type) << ")";
 		// the register that went out on connect had none of these
 		auto session = masterClient ? masterClient->client_session() : nullptr;
 		if (isConnectedToMaster && session) session->SendPacket(makeRegisterPacket());
@@ -310,13 +312,14 @@ std::shared_ptr<gMasterRegisterPacket> GameBackendLocal::makeRegisterPacket() co
     return reg;
 }
 
-void GameBackendLocal::registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort, const std::string& pubIp, bool useP2P) {
+void GameBackendLocal::registerWithMasterServer(const std::string& name, bool isPrivate, const std::string& password, const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort, std::shared_ptr<znet::InetAddress> extraReflector, const std::string& pubIp, bool useP2P) {
     this->serverName = name;
     this->isPrivateServer = isPrivate;
     this->serverPassword = password;
     this->targetMasterIp = masterIp;
     this->targetMasterPort = masterPort;
     this->targetMasterRelayPort = masterRelayPort;
+    this->targetExtraReflector = std::move(extraReflector);
     this->publicIp = pubIp;
     this->useP2P = useP2P;
 

@@ -94,6 +94,7 @@ gipP2PClient::gipP2PClient() {}
 gipP2PClient::~gipP2PClient() {}
 
 gipP2PSession gipP2PClient::joinSession(const std::string& masterIp, uint16_t masterPort, uint16_t masterRelayPort,
+                                        std::shared_ptr<znet::InetAddress> extraReflector,
                                         const std::string& targetIdentifier, uint16_t localGamePort) {
     // The socket everything happens on: the gathering, the punch and the
     // session afterwards, since a NAT hands out one mapping per socket.
@@ -111,11 +112,13 @@ gipP2PSession gipP2PClient::joinSession(const std::string& masterIp, uint16_t ma
     std::shared_ptr<znet::InetAddress> reflector = znet::InetAddress::from(masterIp, masterRelayPort);
     std::vector<std::shared_ptr<znet::InetAddress>> reflectors;
     if (reflector && reflector->is_valid()) reflectors.push_back(reflector);
-    host->Gather(reflectors, GATHER_TIMEOUT, [gathered](znet::Result result, std::vector<znet::p2p::Candidate> candidates) {
-        if (result != znet::Result::Success) {
-            std::cout << "[P2PClient] Gather: " << znet::GetResultString(result) << ", offering the local addresses" << std::endl;
+    // a second reflector on a distinct IP is what lets the gather classify the NAT
+    if (extraReflector && extraReflector->is_valid()) reflectors.push_back(extraReflector);
+    host->Gather(reflectors, GATHER_TIMEOUT, [gathered](znet::p2p::Host::GatherResult result) {
+        if (result.result != znet::Result::Success) {
+            std::cout << "[P2PClient] Gather: " << znet::GetResultString(result.result) << ", offering the local addresses" << std::endl;
         }
-        gathered->finish(std::move(candidates));
+        gathered->finish(std::move(result.candidates));
     });
     if (!gathered->wait(GATHER_TIMEOUT + std::chrono::seconds(1))) {
         std::cout << "[P2PClient] Gather never resolved, giving up." << std::endl;

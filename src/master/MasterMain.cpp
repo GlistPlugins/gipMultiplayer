@@ -833,12 +833,20 @@ struct gRelayOptions {
     std::string publicHost;
     // The one UDP port the relay binds, forwards and reflects on.
     uint16_t port = 25011;
+    // A second reflector on a distinct IP, so peers can tell a symmetric NAT
+    // from a punchable one. Empty disables it. It only reflects; pairings and
+    // allocations still run on the relay above. Bind it to the specific IP, not
+    // 0.0.0.0, or its replies can carry the wrong source address.
+    std::string reflector2Ip;
+    uint16_t reflector2Port = 25011;
 };
 
 class gMasterServerApp : public gBaseApp {
 public:
     std::unique_ptr<znet::Server> server;
     std::unique_ptr<znet::p2p::RelayServer> relay;
+    // a second reflector on a distinct IP; only reflects, never pairs
+    std::unique_ptr<znet::p2p::RelayServer> reflector2;
     std::vector<gServerInfo> serverList;
     std::mutex listMutex;
     uint16_t port = 25010;
@@ -910,6 +918,22 @@ public:
             }
         }
 
+        // A second reflector on a distinct IP lets peers classify their NAT.
+        // Bound to that specific IP so its replies carry the right source.
+        if (!relayOptions.reflector2Ip.empty()) {
+            znet::p2p::RelayServerConfig config;
+            config.bind_address = relayOptions.reflector2Ip;
+            config.port = relayOptions.reflector2Port;
+            reflector2 = std::make_unique<znet::p2p::RelayServer>(config);
+            const znet::Result result = reflector2->Start();
+            if (result != znet::Result::Success) {
+                std::cerr << "[MasterServer] Second reflector failed to start on " << relayOptions.reflector2Ip << ": " << znet::GetResultString(result) << std::endl;
+                reflector2.reset();
+            } else {
+                std::cout << "[MasterServer] Second reflector up on " << relayOptions.reflector2Ip << ":" << relayOptions.reflector2Port << std::endl;
+            }
+        }
+
         server = std::make_unique<znet::Server>(znet::ServerConfig{"0.0.0.0", port, std::chrono::seconds(10), znet::ConnectionType::TCP});
 
         server->SetEventCallback([this](znet::Event& ev) {
@@ -960,6 +984,11 @@ int main(int argc, char **argv) {
          cxxopts::value<std::string>()->default_value(""))
         ("relay-port", "UDP port the relay binds, forwards and reflects on",
          cxxopts::value<uint16_t>()->default_value("25011"))
+        ("reflector2-ip", "A second reflector bound to this distinct local IP, "
+                          "so peers can classify their NAT; empty disables it",
+         cxxopts::value<std::string>()->default_value(""))
+        ("reflector2-port", "UDP port the second reflector binds",
+         cxxopts::value<uint16_t>()->default_value("25011"))
         ("h,help", "Show this help and exit");
 
     uint16_t port;
@@ -974,6 +1003,8 @@ int main(int argc, char **argv) {
         relay.enabled = args.count("relay") > 0;
         relay.publicHost = args["relay-ip"].as<std::string>();
         relay.port = args["relay-port"].as<uint16_t>();
+        relay.reflector2Ip = args["reflector2-ip"].as<std::string>();
+        relay.reflector2Port = args["reflector2-port"].as<uint16_t>();
     } catch (const cxxopts::exceptions::exception& e) {
         std::cerr << "MasterServer: " << e.what() << std::endl;
         return 1;

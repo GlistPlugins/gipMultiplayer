@@ -28,8 +28,19 @@ const uint16_t MASTER_PORT = 25010;
 // The master's relay port: the reflector punch sockets gather from,
 // and where relayed connections fall back to.
 const uint16_t MASTER_RELAY_PORT = 25011;
+// A second reflector on a distinct IP, so a peer can tell a symmetric NAT from
+// a punchable one. Empty disables NAT-type detection. Must match the master's
+// --reflector2-ip / --reflector2-port.
+const std::string MASTER_REFLECTOR2_IP = "91.98.97.212";
+const uint16_t MASTER_REFLECTOR2_PORT = 25011;
 const uint16_t DEFAULT_GAME_PORT = 25000;
 constexpr auto AUTH_TIMEOUT = std::chrono::seconds(15);
+
+// The second reflector as an address, or null when it is not configured.
+std::shared_ptr<znet::InetAddress> secondReflector() {
+    if (MASTER_REFLECTOR2_IP.empty()) return nullptr;
+    return znet::InetAddress::from(MASTER_REFLECTOR2_IP, MASTER_REFLECTOR2_PORT);
+}
 
 std::string hashPassword(const std::string& pwd) {
     unsigned char hash[SHA256_DIGEST_LENGTH];
@@ -273,7 +284,7 @@ void NetworkManager::hostLobby(const std::string& playerName, const std::string&
     // Bare host: the port is appended downstream, and the master replaces
     // this with the address it observes. Real addresses ride in the candidates.
     host->registerWithMasterServer(name, isPrivate, password, MASTER_IP, MASTER_PORT, MASTER_RELAY_PORT,
-                                   znet::GetLoopbackAddress(znet::InetProtocolVersion::IPv4));
+                                   secondReflector(), znet::GetLoopbackAddress(znet::InetProtocolVersion::IPv4));
 
     auto p = std::make_shared<LobbyJoinPacket>();
     p->playerName = localPlayerName;
@@ -298,7 +309,7 @@ void NetworkManager::joinLobby(const std::string& ipOrCode, const std::string& p
         std::shared_ptr<GameBackend> joined;
         if (!forceDirect) {
             gipP2PClient client;
-            if (auto punched = client.joinSession(MASTER_IP, MASTER_PORT, MASTER_RELAY_PORT, ipOrCode, clientPort)) {
+            if (auto punched = client.joinSession(MASTER_IP, MASTER_PORT, MASTER_RELAY_PORT, secondReflector(), ipOrCode, clientPort)) {
                 joined = std::make_shared<GameBackendRemote>(std::move(punched));
             }
         }
