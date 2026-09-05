@@ -14,7 +14,7 @@ endif()
 
 set(ZNET_GIT_REPOSITORY "https://github.com/teoncreative/znet.git"
 		CACHE STRING "Git repository to fetch znet from")
-set(ZNET_GIT_TAG "a76cdd52148eb4aeedf2b2aab896057303df9383"
+set(ZNET_GIT_TAG "fcd2ccbdb7ee1c79a2f789e55a668c4b275945ff"
 		CACHE STRING "znet commit, tag or branch to build against")
 set(ZNET_ZSTD_GIT_TAG "48c0ed73625272cb7445183b5e256b5d0a130316"
 		CACHE STRING "zstd commit to build znet's compression against")
