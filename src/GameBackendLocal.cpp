@@ -218,14 +218,14 @@ void GameBackendLocal::start() {
 	notifyConnected();
 }
 
-znet::p2p::Host* GameBackendLocal::ensurePunchHost() {
+znet::p2p::Agent* GameBackendLocal::ensurePunchHost() {
 	if (punchHost) return punchHost.get();
 
-	znet::p2p::HostConfig config;
+	znet::p2p::AgentConfig config;
 	config.bind_address = "0.0.0.0";
 	config.bind_port = advertisedPort();
 
-	auto host = std::make_unique<znet::p2p::Host>(config);
+	auto host = std::make_unique<znet::p2p::Agent>(config);
 	if (host->Start() != znet::Result::Success) {
 		gLogw("GameBackendLocal") << "[Host] Could not open the punch socket on port " << config.bind_port;
 		return nullptr;
@@ -242,7 +242,7 @@ void GameBackendLocal::gatherCandidates() {
 	std::shared_ptr<znet::InetAddress> reflector = znet::InetAddress::from(targetMasterIp, targetMasterRelayPort);
 	if (reflector && reflector->is_valid()) reflectors.push_back(reflector);
 	if (targetExtraReflector && targetExtraReflector->is_valid()) reflectors.push_back(targetExtraReflector);
-	host->Gather(reflectors, std::chrono::seconds(2), [this](znet::p2p::Host::GatherResult result) {
+	host->Gather(reflectors, std::chrono::seconds(2), [this](znet::p2p::Agent::GatherResult result) {
 		if (result.result != znet::Result::Success) {
 			gLogw("GameBackendLocal") << "[Host] Gather: " << znet::GetResultString(result.result) << ", registering the local addresses";
 		}

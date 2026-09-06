@@ -33,7 +33,7 @@ enum MasterPacketId {
 struct gServerInfo {
     std::string ip;
     std::vector<std::string> peerCandidates;
-    // What the host gathered from its punch socket (znet::p2p::Host::Gather);
+    // What the host gathered from its punch socket (znet::p2p::Agent::Gather);
     // empty for a host that does not punch.
     std::vector<znet::p2p::Candidate> candidates;
     std::string name;

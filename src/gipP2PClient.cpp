@@ -98,10 +98,10 @@ gipP2PSession gipP2PClient::joinSession(const std::string& masterIp, uint16_t ma
                                         const std::string& targetIdentifier, uint16_t localGamePort) {
     // The socket everything happens on: the gathering, the punch and the
     // session afterwards, since a NAT hands out one mapping per socket.
-    znet::p2p::HostConfig hostConfig;
+    znet::p2p::AgentConfig hostConfig;
     hostConfig.bind_address = "0.0.0.0";
     hostConfig.bind_port = localGamePort;
-    auto host = std::make_unique<znet::p2p::Host>(hostConfig);
+    auto host = std::make_unique<znet::p2p::Agent>(hostConfig);
     if (host->Start() != znet::Result::Success) {
         std::cout << "[P2PClient] Could not open the punch socket on port " << localGamePort << std::endl;
         return {};
@@ -113,7 +113,7 @@ gipP2PSession gipP2PClient::joinSession(const std::string& masterIp, uint16_t ma
     std::vector<std::shared_ptr<znet::InetAddress>> reflectors;
     if (reflector && reflector->is_valid()) reflectors.push_back(reflector);
     if (extraReflector && extraReflector->is_valid()) reflectors.push_back(extraReflector);
-    host->Gather(reflectors, GATHER_TIMEOUT, [gathered](znet::p2p::Host::GatherResult result) {
+    host->Gather(reflectors, GATHER_TIMEOUT, [gathered](znet::p2p::Agent::GatherResult result) {
         if (result.result != znet::Result::Success) {
             std::cout << "[P2PClient] Gather: " << znet::GetResultString(result.result) << ", offering the local addresses" << std::endl;
         }

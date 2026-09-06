@@ -1,6 +1,6 @@
 #pragma once
 
-#include "znet/p2p/host.h"
+#include "znet/p2p/agent.h"
 #include "znet/peer_session.h"
 #include <cstdint>
 #include <memory>
@@ -9,7 +9,7 @@
 // A punched connection: the socket it lives on and the session over it. The
 // host drives the session, so it has to outlive it.
 struct gipP2PSession {
-    std::unique_ptr<znet::p2p::Host> host;
+    std::unique_ptr<znet::p2p::Agent> host;
     std::shared_ptr<znet::PeerSession> session;
 
     explicit operator bool() const { return session != nullptr; }

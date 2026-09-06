@@ -115,9 +115,9 @@ protected:
 	// One socket for every punched player. A NAT hands out one mapping per
 	// socket, so punching each peer from its own socket makes their packets
 	// arrive on the wrong session and fail authentication.
-	std::unique_ptr<znet::p2p::Host> punchHost;
+	std::unique_ptr<znet::p2p::Agent> punchHost;
 	// Brings the punch host up on first use, since only P2P servers need it.
-	znet::p2p::Host* ensurePunchHost();
+	znet::p2p::Agent* ensurePunchHost();
 	// Learns the punch socket's candidates off the master's relay and
 	// re-registers with them once they are in.
 	void gatherCandidates();

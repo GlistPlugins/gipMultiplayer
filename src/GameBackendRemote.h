@@ -82,6 +82,6 @@ private:
 	gTeamVoice voiceClient;
 
 	// The punched session's socket and thread; null for a dialed connection.
-	std::unique_ptr<znet::p2p::Host> punchHost;
+	std::unique_ptr<znet::p2p::Agent> punchHost;
 	std::unique_ptr<znet::Client> client; // Declared last so it gets destroyed first
 };

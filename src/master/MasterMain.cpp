@@ -2,7 +2,7 @@
 #include "gBaseApp.h"
 #include "gMasterPackets.h"
 #include "znet/p2p/punch.h"
-#include "znet/p2p/relay_server.h"
+#include "znet/p2p/traversal_server.h"
 #include "znet/server.h"
 #include "znet/server_events.h"
 #include "znet/worker_signal.h"
@@ -272,7 +272,7 @@ static RateLimiter gRateLimiter;
 class gMasterPacketHandler : public znet::PacketHandler<gMasterPacketHandler, gMasterRegisterPacket, gMasterHeartbeatPacket, gMasterGetListPacket, gMasterPunchRequestPacket, gMasterQueryRoomPacket, gMasterUserLoginPacket, gMasterUserRegisterPacket, gMasterUserTokenLoginPacket, gMasterUserLogoutPacket> {
 public:
     gMasterPacketHandler(const std::shared_ptr<znet::PeerSession>& s, std::vector<gServerInfo>& sl, std::mutex& m, sqlite3* db,
-                         znet::p2p::RelayServer* relay, const std::string& relayHost)
+                         znet::p2p::TraversalServer* relay, const std::string& relayHost)
         : session(s.get()), weakSession(s), serverList(sl), listMutex(m), db(db), relay(relay), relayHost(relayHost) {}
 
     void OnPacket(std::shared_ptr<gMasterRegisterPacket> p) {
@@ -451,9 +451,9 @@ public:
             // when no direct candidate answers.
             znet::p2p::Candidate relayed;
             const znet::p2p::Candidate* relayedPtr = nullptr;
-            if (relay) {
-                znet::p2p::RelayServer::Allocation allocation;
-                const znet::Result result = relay->Allocate(allocation);
+            if (relay && relay->relay()) {
+                znet::p2p::Relay::Allocation allocation;
+                const znet::Result result = relay->relay()->Allocate(allocation);
                 if (result == znet::Result::Success) {
                     relayed.type = znet::p2p::CandidateType::Relayed;
                     relayed.address = znet::InetAddress::from(relayHost.empty() ? "0.0.0.0" : relayHost, relay->address()->port());
@@ -795,7 +795,7 @@ private:
     std::vector<gServerInfo>& serverList;
     std::mutex& listMutex;
     sqlite3* db;
-    znet::p2p::RelayServer* relay;  // null without one; owned by the app
+    znet::p2p::TraversalServer* relay;  // null without one; owned by the app
     std::string relayHost;          // empty means this host
 };
 
@@ -844,9 +844,9 @@ struct gRelayOptions {
 class gMasterServerApp : public gBaseApp {
 public:
     std::unique_ptr<znet::Server> server;
-    std::unique_ptr<znet::p2p::RelayServer> relay;
+    std::unique_ptr<znet::p2p::TraversalServer> relay;
     // reflect-only; never pairs (see gRelayOptions::reflector2Ip)
-    std::unique_ptr<znet::p2p::RelayServer> reflector2;
+    std::unique_ptr<znet::p2p::TraversalServer> reflector2;
     std::vector<gServerInfo> serverList;
     std::mutex listMutex;
     uint16_t port = 25010;
@@ -906,9 +906,9 @@ public:
         appmanager->setTargetFramerate(60);
 
         if (relayOptions.enabled) {
-            znet::p2p::RelayServerConfig config;
+            znet::p2p::TraversalServerConfig config;
             config.port = relayOptions.port;
-            relay = std::make_unique<znet::p2p::RelayServer>(config);
+            relay = std::make_unique<znet::p2p::TraversalServer>(config);
             const znet::Result result = relay->Start();
             if (result != znet::Result::Success) {
                 std::cerr << "[MasterServer] Relay failed to start: " << znet::GetResultString(result) << std::endl;
@@ -920,10 +920,11 @@ public:
 
         // The optional second reflector; see gRelayOptions::reflector2Ip.
         if (!relayOptions.reflector2Ip.empty()) {
-            znet::p2p::RelayServerConfig config;
+            znet::p2p::TraversalServerConfig config;
             config.bind_address = relayOptions.reflector2Ip;
             config.port = relayOptions.reflector2Port;
-            reflector2 = std::make_unique<znet::p2p::RelayServer>(config);
+            config.enable_relay = false;  // reflect-only; never pairs
+            reflector2 = std::make_unique<znet::p2p::TraversalServer>(config);
             const znet::Result result = reflector2->Start();
             if (result != znet::Result::Success) {
                 std::cerr << "[MasterServer] Second reflector failed to start on " << relayOptions.reflector2Ip << ": " << znet::GetResultString(result) << std::endl;
